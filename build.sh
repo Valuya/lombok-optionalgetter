@@ -2,18 +2,22 @@
 # Build an "overlay" lombok jar: the official published lombok, plus the
 # @OptionalGetter annotation and its handlers injected as lombok shadow entries.
 #
-# Why an overlay and not a companion jar: lombok's ShadowClassLoader only loads
-# annotation handlers from lombok's OWN jar (an inOwnBase filter), so a handler
-# shipped in a separate sibling jar is silently ignored no matter how it's
-# packaged. Injecting into a copy of the official jar is the lightest thing that
-# actually works, and it tracks upstream by simply pointing at a newer version.
+# Why an overlay and not a companion jar: lombok's ShadowClassLoader loads
+# annotation handlers only from lombok's OWN jar (an inOwnBase filter), so a
+# handler shipped in a separate sibling jar is silently ignored no matter how
+# it's packaged. Injecting into a copy of the official jar is the lightest thing
+# that actually works, and it tracks upstream by just bumping lombok.version.
 #
-# Usage: ./build.sh [LOMBOK_VERSION]     (default: value of LOMBOK_VERSION env or 1.18.46)
+# lombok (and ecj, for the optional Eclipse handler) are resolved as Maven
+# dependencies from pom.xml — no download URLs live here. The version is read
+# from the pom's lombok.version property.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-LOMBOK_VERSION="${1:-${LOMBOK_VERSION:-1.18.46}}"
+MVN="${MVN:-mvn}"
+LOMBOK_VERSION="${1:-${LOMBOK_VERSION:-$("$MVN" -q -DforceStdout help:evaluate -Dexpression=lombok.version)}}"
 OUT_DIR="target"
+DEPS="$OUT_DIR/deps"
 WORK="$OUT_DIR/work"
 CLASSES="$OUT_DIR/classes"
 DESHADOW="$OUT_DIR/lombok-deshadow.jar"
@@ -27,19 +31,21 @@ JAVA_EXPORTS=(
   --add-exports jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED
 )
 
-rm -rf "$OUT_DIR"; mkdir -p "$WORK" "$CLASSES"
+rm -rf "$OUT_DIR"; mkdir -p "$WORK" "$CLASSES" "$DEPS"
 
-# 1. Resolve the official lombok jar (local ~/.m2, else Maven Central).
-STOCK="$HOME/.m2/repository/org/projectlombok/lombok/${LOMBOK_VERSION}/lombok-${LOMBOK_VERSION}.jar"
-if [ ! -f "$STOCK" ]; then
-  STOCK="$OUT_DIR/lombok-stock.jar"
-  echo "Downloading lombok ${LOMBOK_VERSION} from Maven Central..."
-  curl -fsSL -o "$STOCK" \
-    "https://repo1.maven.org/maven2/org/projectlombok/lombok/${LOMBOK_VERSION}/lombok-${LOMBOK_VERSION}.jar"
-fi
+# 1. Resolve lombok + ecj into target/deps via Maven (respects pom.xml versions).
+echo "Resolving dependencies via Maven..."
+"$MVN" -q -Dlombok.version="$LOMBOK_VERSION" \
+  -DoutputDirectory="$PWD/$DEPS" -DincludeScope=provided \
+  dependency:copy-dependencies
+# absolute paths: these are used inside `cd` subshells below
+STOCK="$(ls "$PWD/$DEPS"/lombok-*.jar 2>/dev/null | head -1)"
+ECJ_JAR="$(ls "$PWD/$DEPS"/ecj-*.jar "$PWD/$DEPS"/org.eclipse.jdt.core*.jar 2>/dev/null | head -1 || true)"
+[ -n "$STOCK" ] || { echo "could not resolve lombok jar into $DEPS" >&2; exit 1; }
 echo "Stock lombok: $STOCK"
 
-# 2. Deshadow it into a compile-only classpath (.SCL.lombok -> .class).
+# 2. Deshadow it into a compile-only classpath (.SCL.lombok -> .class). The published jar hides
+#    lombok's internal handler API as .SCL.lombok, so an extension can't compile against it directly.
 DS="$OUT_DIR/deshadow"; mkdir -p "$DS"
 ( cd "$DS" && unzip -q "$STOCK" )
 if [ -d "$DS/SCL.lombok" ]; then
@@ -49,22 +55,16 @@ if [ -d "$DS/SCL.lombok" ]; then
 fi
 ( cd "$DS" && jar cf "../$(basename "$DESHADOW")" . )
 
-# 3. Locate an ecj jar (needed only for the Eclipse handler). Optional.
-ECJ_JAR="${ECJ_JAR:-}"
-if [ -z "$ECJ_JAR" ]; then
-  ECJ_JAR="$(find deps -iname 'ecj*.jar' 2>/dev/null | head -1 || true)"
-fi
+# 3. Compile the annotation + javac handler (mandatory — this is what a Maven/javac build uses).
 CP="$DESHADOW"; [ -n "$ECJ_JAR" ] && CP="$DESHADOW:$ECJ_JAR"
-
-# 4. Compile the annotation + javac handler (mandatory — this is what a Maven/javac build uses).
 echo "Compiling annotation + javac handler"
 javac "${JAVA_EXPORTS[@]}" -cp "$CP" -d "$CLASSES" \
   src/main/java/lombok/OptionalGetter.java \
   src/main/java/lombok/javac/handlers/HandleOptionalGetter.java
 
-# 4b. Eclipse handler is best-effort: it only matters for the Eclipse IDE, and it compiles against ecj's
-# internal AST API, which drifts between ecj versions. If no ecj is found, or it fails to compile, warn and
-# ship a javac-only overlay rather than failing the whole build.
+# 3b. Eclipse handler is best-effort: it only matters for the Eclipse IDE, and it compiles against ecj's
+#     internal AST API, which drifts between ecj versions. If ecj is missing or it fails to compile, warn
+#     and ship a javac-only overlay rather than failing the whole build.
 ECLIPSE_OK=0
 if [ -n "$ECJ_JAR" ]; then
   if javac "${JAVA_EXPORTS[@]}" -cp "$CP:$CLASSES" -d "$CLASSES" \
@@ -76,59 +76,70 @@ if [ -n "$ECJ_JAR" ]; then
     echo "         (see $OUT_DIR/eclipse-compile.log — usually an ecj-version API mismatch)"
   fi
 else
-  echo "No ecj found (deps/ecj*.jar or \$ECJ_JAR); shipping javac-only overlay."
+  echo "No ecj resolved; shipping javac-only overlay."
 fi
 
-# 5. Overlay: copy the official jar, inject our classes, register the handlers.
+# 4. Overlay: copy the official jar, inject our classes, register the handlers.
 ( cd "$WORK" && unzip -q "$STOCK" )
 inject_scl() { # <class-relpath-without-.class>
-  local rel="$1"
-  cp "$CLASSES/${rel}.class" "$WORK/SCL.lombok/${rel}.SCL.lombok"
+  cp "$CLASSES/$1.class" "$WORK/SCL.lombok/$1.SCL.lombok"
 }
 # annotation: real public class (like lombok.Getter) + shadow copy (loaded via SCL at processing time)
 cp "$CLASSES/lombok/OptionalGetter.class" "$WORK/lombok/OptionalGetter.class"
 cp "$CLASSES/lombok/OptionalGetter\$AnyAnnotation.class" "$WORK/lombok/OptionalGetter\$AnyAnnotation.class"
 inject_scl 'lombok/OptionalGetter'
 inject_scl 'lombok/OptionalGetter$AnyAnnotation'
-# javac handler + inner classes
 for c in "$CLASSES"/lombok/javac/handlers/HandleOptionalGetter*.class; do
-  rel="${c#$CLASSES/}"; rel="${rel%.class}"; inject_scl "$rel"
+  rel="${c#$CLASSES/}"; inject_scl "${rel%.class}"
 done
 append_handler() { # <service-file-relpath> <handler-fqcn>
-  local svc="$WORK/$1" fqcn="$2"
+  local svc="$WORK/$1"
   [ -f "$svc" ] || { echo "missing service file: $1" >&2; exit 1; }
-  # ensure the file ends with a newline before appending (stock files may not)
-  [ -n "$(tail -c1 "$svc")" ] && printf '\n' >> "$svc"
-  printf '%s\n' "$fqcn" >> "$svc"
+  [ -n "$(tail -c1 "$svc")" ] && printf '\n' >> "$svc"   # stock files may lack a trailing newline
+  printf '%s\n' "$2" >> "$svc"
 }
 append_handler 'META-INF/services/lombok.javac.JavacAnnotationHandler' 'lombok.javac.handlers.HandleOptionalGetter'
-# eclipse handler, only if it was compiled
 if [ "$ECLIPSE_OK" = "1" ]; then
   for c in "$CLASSES"/lombok/eclipse/handlers/HandleOptionalGetter*.class; do
-    rel="${c#$CLASSES/}"; rel="${rel%.class}"; inject_scl "$rel"
+    rel="${c#$CLASSES/}"; inject_scl "${rel%.class}"
   done
   append_handler 'META-INF/services/lombok.eclipse.EclipseAnnotationHandler' 'lombok.eclipse.handlers.HandleOptionalGetter'
 fi
 ( cd "$WORK" && jar cf "../../$OUT_JAR" . )
 echo "Built: $OUT_JAR"
 
-# 6. Smoke test: compile+run a class using @OptionalGetter through the overlay jar.
+# 5. Smoke test through the overlay jar (javac -proc:full — the same path a real build uses).
 ST="$OUT_DIR/smoke"; mkdir -p "$ST"
+# 5a. Positive: @OptionalGetter on reference fields yields Optional accessors; stock @Getter still works.
 cat > "$ST/Person.java" <<'JAVA'
 public class Person {
   @lombok.OptionalGetter private String name;
-  @lombok.OptionalGetter private int age;
-  @lombok.Getter private String plain;
-  Person(String n, int a, String p) { this.name = n; this.age = a; this.plain = p; }
+  @lombok.OptionalGetter private Integer age;   // boxed reference type is fine
+  @lombok.Getter private int rank;               // primitives use plain @Getter
+  Person(String n, Integer a, int r) { this.name = n; this.age = a; this.rank = r; }
   public static void main(String[] x) {
-    Person p = new Person(null, 42, "z");
-    java.util.Optional<String> n = p.getName();   // static-type assertion
+    Person p = new Person(null, 42, 7);
+    java.util.Optional<String> n = p.getName();      // static-type assertion
+    java.util.Optional<Integer> a = p.getAge();
     if (!p.getName().equals(java.util.Optional.empty())) throw new AssertionError("getName");
     if (!p.getAge().equals(java.util.Optional.of(42))) throw new AssertionError("getAge");
-    if (!p.getPlain().equals("z")) throw new AssertionError("getPlain");
-    System.out.println("SMOKE OK: name=" + p.getName() + " age=" + p.getAge() + " plain=" + p.getPlain());
+    if (p.getRank() != 7) throw new AssertionError("getRank");
+    System.out.println("SMOKE OK: name=" + p.getName() + " age=" + p.getAge() + " rank=" + p.getRank());
   }
 }
 JAVA
 javac -proc:full -cp "$OUT_JAR" -d "$ST" "$ST/Person.java"
 java -cp "$ST:$OUT_JAR" Person
+
+# 5b. Negative: @OptionalGetter on a primitive must be rejected with a clear error.
+cat > "$ST/Bad.java" <<'JAVA'
+public class Bad { @lombok.OptionalGetter private int count; }
+JAVA
+if javac -proc:full -cp "$OUT_JAR" -d "$ST" "$ST/Bad.java" 2>"$ST/bad.log"; then
+  echo "SMOKE FAIL: @OptionalGetter on a primitive should not compile" >&2; cat "$ST/bad.log" >&2; exit 1
+fi
+if grep -q 'primitive' "$ST/bad.log"; then
+  echo "SMOKE OK: primitive field rejected -> $(grep -m1 primitive "$ST/bad.log" | sed 's/^.*error: //')"
+else
+  echo "SMOKE FAIL: primitive rejected but without the expected message:" >&2; cat "$ST/bad.log" >&2; exit 1
+fi

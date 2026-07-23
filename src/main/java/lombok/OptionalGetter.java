@@ -33,8 +33,9 @@ import java.lang.annotation.Target;
  * accessor returns {@code java.util.Optional<T>}. The value is wrapped with {@code Optional.ofNullable(...)},
  * so a {@code null} field yields an empty {@code Optional} rather than a {@code null} return.
  * <p>
- * For a primitive field the return type uses the boxed type (e.g. an {@code int} field yields
- * {@code Optional<Integer>}); since a primitive is never {@code null}, the wrap is a plain {@code Optional.of(...)}.
+ * Primitive fields are <b>not</b> allowed: a primitive is never absent, so wrapping it in an {@code Optional}
+ * would be meaningless. Placing {@code @OptionalGetter} directly on a primitive field is a compile error; when
+ * the annotation is applied to a whole class, primitive fields are simply skipped.
  * <p>
  * Example:
  * <pre>

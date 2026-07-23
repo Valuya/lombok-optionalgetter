@@ -14,10 +14,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
-      - name: Fetch ecj
-        run: |
-          mkdir -p deps
-          curl -fsSL -o deps/ecj.jar \
-            "https://repo1.maven.org/maven2/org/eclipse/jdt/ecj/3.33.0/ecj-3.33.0.jar"
+      # build.sh resolves lombok + ecj via Maven (preinstalled on the runner); no downloads here.
       - name: Build overlay + smoke test
         run: ./build.sh

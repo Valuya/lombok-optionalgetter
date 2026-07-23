@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       lombok_version:
-        description: Upstream lombok version to overlay
-        required: true
-        default: "1.18.46"
+        description: Upstream lombok version to overlay (blank = pom's lombok.version)
+        required: false
+        default: ""
   push:
     tags: ["v*"]
 
@@ -29,18 +29,15 @@ jobs:
         id: ver
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            V="${GITHUB_REF_NAME#v}"          # tag v1.18.46 -> 1.18.46
-          else
+            V="${GITHUB_REF_NAME#v}"                       # tag v1.18.46 -> 1.18.46
+          elif [ -n "${{ github.event.inputs.lombok_version }}" ]; then
             V="${{ github.event.inputs.lombok_version }}"
+          else
+            V="$(mvn -q -DforceStdout help:evaluate -Dexpression=lombok.version)"   # pom is the source of truth
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch ecj (for the Eclipse handler)
-        run: |
-          mkdir -p deps
-          curl -fsSL -o deps/ecj.jar \
-            "https://repo1.maven.org/maven2/org/eclipse/jdt/ecj/3.33.0/ecj-3.33.0.jar"
-
+      # build.sh resolves lombok + ecj via Maven; no downloads here.
       - name: Build overlay jar (+ smoke test)
         run: ./build.sh "${{ steps.ver.outputs.version }}"
 

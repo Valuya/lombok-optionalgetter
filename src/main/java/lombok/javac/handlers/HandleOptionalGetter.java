@@ -22,14 +22,9 @@
 package lombok.javac.handlers;
 
 import static lombok.core.handlers.HandlerUtil.*;
-import static lombok.javac.Javac.*;
-import static lombok.javac.JavacTreeMaker.TypeTag.*;
 import static lombok.javac.handlers.JavacHandlerUtil.*;
 
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 
 import lombok.AccessLevel;
 import lombok.OptionalGetter;
@@ -40,7 +35,6 @@ import lombok.core.configuration.CheckerFrameworkVersion;
 import lombok.javac.JavacAnnotationHandler;
 import lombok.javac.JavacNode;
 import lombok.javac.JavacTreeMaker;
-import lombok.javac.JavacTreeMaker.TypeTag;
 
 import com.sun.tools.javac.code.Flags;
 import com.sun.tools.javac.tree.JCTree.JCAnnotation;
@@ -59,36 +53,22 @@ import com.sun.tools.javac.util.Name;
  * <p>
  * This is a close cousin of {@link HandleGetter}; the only differences are the return type
  * ({@code java.util.Optional<T>} instead of {@code T}) and the body
- * ({@code return java.util.Optional.ofNullable(this.field);}).
+ * ({@code return java.util.Optional.ofNullable(this.field);}). Primitive fields are rejected:
+ * a primitive is never absent, so wrapping it in an {@code Optional} would be meaningless.
  */
 public class HandleOptionalGetter extends JavacAnnotationHandler<OptionalGetter> {
 	private static final String OPTIONAL = "java.util.Optional";
-	private static final String GETTER_NODE_NOT_SUPPORTED_ERR = "@OptionalGetter is only supported on a class, an enum, or a field.";
-
-	public static final Map<TypeTag, String> TYPE_MAP;
-	static {
-		Map<TypeTag, String> m = new HashMap<TypeTag, String>();
-		m.put(CTC_INT, "Integer");
-		m.put(CTC_DOUBLE, "Double");
-		m.put(CTC_FLOAT, "Float");
-		m.put(CTC_SHORT, "Short");
-		m.put(CTC_BYTE, "Byte");
-		m.put(CTC_LONG, "Long");
-		m.put(CTC_BOOLEAN, "Boolean");
-		m.put(CTC_CHAR, "Character");
-		TYPE_MAP = Collections.unmodifiableMap(m);
-	}
+	private static final String NODE_NOT_SUPPORTED_ERR = "@OptionalGetter is only supported on a class, an enum, or a field.";
+	private static final String PRIMITIVE_ERR = "@OptionalGetter is not allowed on a primitive field: a primitive is never absent.";
 
 	public void generateOptionalGetterForType(JavacNode typeNode, JavacNode errorNode, AccessLevel level, boolean checkForTypeLevelGetter, List<JCAnnotation> onMethod) {
-		if (checkForTypeLevelGetter) {
-			if (hasAnnotation(OptionalGetter.class, typeNode)) {
-				//The annotation will make it happen, so we can skip it.
-				return;
-			}
+		if (checkForTypeLevelGetter && hasAnnotation(OptionalGetter.class, typeNode)) {
+			//The annotation will make it happen, so we can skip it.
+			return;
 		}
 
 		if (!isClassOrEnum(typeNode)) {
-			errorNode.addError(GETTER_NODE_NOT_SUPPORTED_ERR);
+			errorNode.addError(NODE_NOT_SUPPORTED_ERR);
 			return;
 		}
 
@@ -99,13 +79,16 @@ public class HandleOptionalGetter extends JavacAnnotationHandler<OptionalGetter>
 
 	/**
 	 * Generates an optional getter on the stated field, unless it already has a {@code @Getter} or
-	 * {@code @OptionalGetter} annotation (in which case that annotation's handler takes care of it).
+	 * {@code @OptionalGetter} annotation (in which case that annotation's handler takes care of it), or
+	 * the field is a primitive (which is silently skipped at the type level: {@code @OptionalGetter} on a
+	 * class shouldn't fail just because the class happens to have a primitive field).
 	 */
 	public void generateOptionalGetterForField(JavacNode fieldNode, JavacNode source, AccessLevel level, List<JCAnnotation> onMethod) {
 		if (hasAnnotation(lombok.Getter.class, fieldNode) || hasAnnotation(OptionalGetter.class, fieldNode)) {
 			//The annotation will make it happen, so we can skip it.
 			return;
 		}
+		if (isPrimitive(fieldNode)) return;
 		createGetterForField(level, fieldNode, source, false, onMethod);
 	}
 
@@ -116,14 +99,13 @@ public class HandleOptionalGetter extends JavacAnnotationHandler<OptionalGetter>
 		JavacNode node = annotationNode.up();
 		AccessLevel level = annotation.getInstance().value();
 
-		if (level == AccessLevel.NONE) return;
-		if (node == null) return;
+		if (level == AccessLevel.NONE || node == null) return;
 
 		List<JCAnnotation> onMethod = unboxAndRemoveAnnotationParameter(ast, "onMethod", "@OptionalGetter(onMethod", annotationNode);
 
 		switch (node.getKind()) {
 		case FIELD:
-			createGetterForFields(level, fields, annotationNode, true, onMethod);
+			for (JavacNode fieldNode : fields) createGetterForField(level, fieldNode, annotationNode, true, onMethod);
 			break;
 		case TYPE:
 			generateOptionalGetterForType(node, annotationNode, level, false, onMethod);
@@ -131,15 +113,17 @@ public class HandleOptionalGetter extends JavacAnnotationHandler<OptionalGetter>
 		}
 	}
 
-	public void createGetterForFields(AccessLevel level, Collection<JavacNode> fieldNodes, JavacNode errorNode, boolean whineIfExists, List<JCAnnotation> onMethod) {
-		for (JavacNode fieldNode : fieldNodes) {
-			createGetterForField(level, fieldNode, errorNode, whineIfExists, onMethod);
-		}
+	private static boolean isPrimitive(JavacNode fieldNode) {
+		return ((JCVariableDecl) fieldNode.get()).vartype instanceof JCPrimitiveTypeTree;
 	}
 
 	public void createGetterForField(AccessLevel level, JavacNode fieldNode, JavacNode source, boolean whineIfExists, List<JCAnnotation> onMethod) {
 		if (fieldNode.getKind() != Kind.FIELD || fieldNode.isEnumMember()) {
-			source.addError(GETTER_NODE_NOT_SUPPORTED_ERR);
+			source.addError(NODE_NOT_SUPPORTED_ERR);
+			return;
+		}
+		if (isPrimitive(fieldNode)) {
+			source.addError(PRIMITIVE_ERR);
 			return;
 		}
 
@@ -159,10 +143,8 @@ public class HandleOptionalGetter extends JavacAnnotationHandler<OptionalGetter>
 				return;
 			case EXISTS_BY_USER:
 				if (whineIfExists) {
-					String altNameExpl = "";
-					if (!altName.equals(methodName)) altNameExpl = String.format(" (%s)", altName);
-					source.addWarning(
-						String.format("Not generating %s(): A method with that name already exists%s", methodName, altNameExpl));
+					String altNameExpl = altName.equals(methodName) ? "" : String.format(" (%s)", altName);
+					source.addWarning(String.format("Not generating %s(): A method with that name already exists%s", methodName, altNameExpl));
 				}
 				return;
 			default:
@@ -172,36 +154,24 @@ public class HandleOptionalGetter extends JavacAnnotationHandler<OptionalGetter>
 		}
 
 		long access = toJavacModifier(level) | (fieldDecl.mods.flags & Flags.STATIC);
-
 		injectMethod(fieldNode.up(), createGetter(access, fieldNode, fieldNode.getTreeMaker(), source, onMethod));
 	}
 
 	public JCMethodDecl createGetter(long access, JavacNode field, JavacTreeMaker treeMaker, JavacNode source, List<JCAnnotation> onMethod) {
 		JCVariableDecl fieldNode = (JCVariableDecl) field.get();
 
-		// The type argument of Optional<...>: the field's own type, boxed if primitive.
-		JCExpression valueType;
-		boolean primitive = fieldNode.vartype instanceof JCPrimitiveTypeTree && TYPE_MAP.containsKey(typeTag(fieldNode.vartype));
-		if (primitive) {
-			valueType = genJavaLangTypeRef(field, TYPE_MAP.get(typeTag(fieldNode.vartype)));
-		} else {
-			valueType = copyType(treeMaker, fieldNode, source);
-		}
-
-		// Return type: java.util.Optional<valueType>
+		// Return type: java.util.Optional<fieldType>. Primitives are rejected earlier, so the field type is used verbatim.
+		JCExpression valueType = fieldNode.type != null ? treeMaker.Type(fieldNode.type) : cloneType(treeMaker, fieldNode.vartype, source);
 		JCExpression methodType = treeMaker.TypeApply(chainDotsString(field, OPTIONAL), List.of(valueType));
 
-		AnnotationValues<Accessors> accessors = JavacHandlerUtil.getAccessorsForField(field);
+		AnnotationValues<Accessors> accessors = getAccessorsForField(field);
 		Name methodName = field.toName(toGetterName(field, accessors));
 		boolean makeFinal = shouldMakeFinal(field, accessors);
 
-		// return java.util.Optional.ofNullable(this.field);  (primitives can't be null: Optional.of)
+		// return java.util.Optional.ofNullable(this.field);
 		JCExpression fieldRef = createFieldAccessor(treeMaker, field, FieldAccess.ALWAYS_FIELD);
-		Name factory = field.toName(primitive ? "of" : "ofNullable");
-		JCExpression wrapped = treeMaker.Apply(List.<JCExpression>nil(), treeMaker.Select(chainDotsString(field, OPTIONAL), factory), List.of(fieldRef));
-		List<JCStatement> statements = List.<JCStatement>of(treeMaker.Return(wrapped));
-
-		JCBlock methodBody = treeMaker.Block(0, statements);
+		JCExpression wrapped = treeMaker.Apply(List.<JCExpression>nil(), treeMaker.Select(chainDotsString(field, OPTIONAL), field.toName("ofNullable")), List.of(fieldRef));
+		JCBlock methodBody = treeMaker.Block(0, List.<JCStatement>of(treeMaker.Return(wrapped)));
 
 		List<JCTypeParameter> methodGenericParams = List.nil();
 		List<JCVariableDecl> parameters = List.nil();
@@ -230,9 +200,5 @@ public class HandleOptionalGetter extends JavacAnnotationHandler<OptionalGetter>
 
 		copyJavadoc(field, decl, CopyJavadoc.GETTER);
 		return decl;
-	}
-
-	public JCExpression copyType(JavacTreeMaker treeMaker, JCVariableDecl fieldNode, JavacNode source) {
-		return fieldNode.type != null ? treeMaker.Type(fieldNode.type) : cloneType(treeMaker, fieldNode.vartype, source);
 	}
 }

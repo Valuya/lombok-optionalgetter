@@ -25,11 +25,11 @@ import static lombok.core.handlers.HandlerUtil.*;
 import static lombok.eclipse.Eclipse.*;
 import static lombok.eclipse.handlers.EclipseHandlerUtil.*;
 
+import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 import lombok.AccessLevel;
 import lombok.OptionalGetter;
@@ -47,7 +47,6 @@ import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.MessageSend;
 import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ParameterizedQualifiedTypeReference;
-import org.eclipse.jdt.internal.compiler.ast.QualifiedTypeReference;
 import org.eclipse.jdt.internal.compiler.ast.ReturnStatement;
 import org.eclipse.jdt.internal.compiler.ast.Statement;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
@@ -58,35 +57,21 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
  * Handles the {@code lombok.OptionalGetter} annotation for eclipse.
  * <p>
  * Cousin of {@link HandleGetter}: the generated accessor returns {@code java.util.Optional<T>} and its body is
- * {@code return java.util.Optional.ofNullable(this.field);} (or {@code Optional.of(...)} for a primitive field).
+ * {@code return java.util.Optional.ofNullable(this.field);}. Primitive fields are rejected: a primitive is never
+ * absent, so wrapping it in an {@code Optional} would be meaningless.
  */
 public class HandleOptionalGetter extends EclipseAnnotationHandler<OptionalGetter> {
 	private static final char[][] OPTIONAL = fromQualifiedName("java.util.Optional");
 	private static final char[] OF_NULLABLE = "ofNullable".toCharArray();
-	private static final char[] OF = "of".toCharArray();
-	private static final String GETTER_NODE_NOT_SUPPORTED_ERR = "@OptionalGetter is only supported on a class, an enum, or a field.";
-
-	public static final Map<String, char[][]> TYPE_MAP;
-	static {
-		Map<String, char[][]> m = new HashMap<String, char[][]>();
-		m.put("int", fromQualifiedName("java.lang.Integer"));
-		m.put("double", fromQualifiedName("java.lang.Double"));
-		m.put("float", fromQualifiedName("java.lang.Float"));
-		m.put("short", fromQualifiedName("java.lang.Short"));
-		m.put("byte", fromQualifiedName("java.lang.Byte"));
-		m.put("long", fromQualifiedName("java.lang.Long"));
-		m.put("boolean", fromQualifiedName("java.lang.Boolean"));
-		m.put("char", fromQualifiedName("java.lang.Character"));
-		TYPE_MAP = Collections.unmodifiableMap(m);
-	}
+	private static final String NODE_NOT_SUPPORTED_ERR = "@OptionalGetter is only supported on a class, an enum, or a field.";
+	private static final String PRIMITIVE_ERR = "@OptionalGetter is not allowed on a primitive field: a primitive is never absent.";
+	private static final Set<String> PRIMITIVES = new HashSet<String>(Arrays.asList("int", "long", "short", "byte", "char", "boolean", "float", "double"));
 
 	public boolean generateOptionalGetterForType(EclipseNode typeNode, EclipseNode pos, AccessLevel level, boolean checkForTypeLevelGetter, List<Annotation> onMethod) {
-		if (checkForTypeLevelGetter) {
-			if (hasAnnotation(OptionalGetter.class, typeNode)) return true;
-		}
+		if (checkForTypeLevelGetter && hasAnnotation(OptionalGetter.class, typeNode)) return true;
 
 		if (!isClassOrEnum(typeNode)) {
-			pos.addError(GETTER_NODE_NOT_SUPPORTED_ERR);
+			pos.addError(NODE_NOT_SUPPORTED_ERR);
 			return false;
 		}
 
@@ -98,6 +83,8 @@ public class HandleOptionalGetter extends EclipseAnnotationHandler<OptionalGette
 
 	public void generateOptionalGetterForField(EclipseNode fieldNode, ASTNode pos, AccessLevel level, List<Annotation> onMethod) {
 		if (hasAnnotation(lombok.Getter.class, fieldNode) || hasAnnotation(OptionalGetter.class, fieldNode)) return;
+		// At the type level, silently skip primitives: @OptionalGetter on a class shouldn't fail over one primitive field.
+		if (isPrimitive(fieldNode)) return;
 		createGetterForField(level, fieldNode, fieldNode, pos, false, onMethod);
 	}
 
@@ -105,14 +92,13 @@ public class HandleOptionalGetter extends EclipseAnnotationHandler<OptionalGette
 		EclipseNode node = annotationNode.up();
 		AccessLevel level = annotation.getInstance().value();
 
-		if (level == AccessLevel.NONE) return;
-		if (node == null) return;
+		if (level == AccessLevel.NONE || node == null) return;
 
 		List<Annotation> onMethod = unboxAndRemoveAnnotationParameter(ast, "onMethod", "@OptionalGetter(onMethod", annotationNode);
 
 		switch (node.getKind()) {
 		case FIELD:
-			createGetterForFields(level, annotationNode.upFromAnnotationToFields(), annotationNode, annotationNode.get(), true, onMethod);
+			for (EclipseNode fieldNode : annotationNode.upFromAnnotationToFields()) createGetterForField(level, fieldNode, annotationNode, annotationNode.get(), true, onMethod);
 			break;
 		case TYPE:
 			generateOptionalGetterForType(node, annotationNode, level, false, onMethod);
@@ -120,15 +106,18 @@ public class HandleOptionalGetter extends EclipseAnnotationHandler<OptionalGette
 		}
 	}
 
-	public void createGetterForFields(AccessLevel level, Collection<EclipseNode> fieldNodes, EclipseNode errorNode, ASTNode source, boolean whineIfExists, List<Annotation> onMethod) {
-		for (EclipseNode fieldNode : fieldNodes) {
-			createGetterForField(level, fieldNode, errorNode, source, whineIfExists, onMethod);
-		}
+	private static boolean isPrimitive(EclipseNode fieldNode) {
+		TypeReference type = ((FieldDeclaration) fieldNode.get()).type;
+		return type != null && type.dimensions() == 0 && type.getTypeName().length == 1 && PRIMITIVES.contains(new String(type.getLastToken()));
 	}
 
 	public void createGetterForField(AccessLevel level, EclipseNode fieldNode, EclipseNode errorNode, ASTNode source, boolean whineIfExists, List<Annotation> onMethod) {
 		if (fieldNode.getKind() != Kind.FIELD || fieldNode.isEnumMember()) {
-			errorNode.addError(GETTER_NODE_NOT_SUPPORTED_ERR);
+			errorNode.addError(NODE_NOT_SUPPORTED_ERR);
+			return;
+		}
+		if (isPrimitive(fieldNode)) {
+			errorNode.addError(PRIMITIVE_ERR);
 			return;
 		}
 
@@ -150,10 +139,8 @@ public class HandleOptionalGetter extends EclipseAnnotationHandler<OptionalGette
 				return;
 			case EXISTS_BY_USER:
 				if (whineIfExists) {
-					String altNameExpl = "";
-					if (!altName.equals(getterName)) altNameExpl = String.format(" (%s)", altName);
-					errorNode.addWarning(
-						String.format("Not generating %s(): A method with that name already exists%s", getterName, altNameExpl));
+					String altNameExpl = altName.equals(getterName) ? "" : String.format(" (%s)", altName);
+					errorNode.addWarning(String.format("Not generating %s(): A method with that name already exists%s", getterName, altNameExpl));
 				}
 				return;
 			default:
@@ -171,34 +158,19 @@ public class HandleOptionalGetter extends EclipseAnnotationHandler<OptionalGette
 		int pS = source.sourceStart, pE = source.sourceEnd;
 		long p = (long) pS << 32 | pE;
 
-		// The type argument of Optional<...>: the field's own type, boxed if primitive.
-		TypeReference valueType;
-		boolean primitive = false;
-		if (field.type != null && field.type.dimensions() == 0) {
-			char[][] boxed = TYPE_MAP.get(new String(field.type.getLastToken()));
-			if (boxed != null && field.type.getTypeName().length == 1) {
-				valueType = new QualifiedTypeReference(boxed, poss(source, boxed.length));
-				primitive = true;
-			} else {
-				valueType = copyType(field.type, source);
-			}
-		} else {
-			valueType = copyType(field.type, source);
-		}
-
-		// Return type: java.util.Optional<valueType>
+		// Return type: java.util.Optional<fieldType>. Primitives are rejected earlier, so the field type is used verbatim.
 		TypeReference[][] typeArgs = new TypeReference[OPTIONAL.length][];
-		typeArgs[OPTIONAL.length - 1] = new TypeReference[] {valueType};
+		typeArgs[OPTIONAL.length - 1] = new TypeReference[] {copyType(field.type, source)};
 		TypeReference returnType = new ParameterizedQualifiedTypeReference(OPTIONAL, typeArgs, 0, poss(source, OPTIONAL.length));
 		setGeneratedBy(returnType, source);
 
-		// return java.util.Optional.ofNullable(this.field);  (primitives can't be null: Optional.of)
+		// return java.util.Optional.ofNullable(this.field);
 		MessageSend call = new MessageSend();
 		call.sourceStart = pS; call.sourceEnd = pE;
 		call.statementEnd = pE;
 		call.nameSourcePosition = p;
 		call.receiver = generateQualifiedNameRef(source, OPTIONAL);
-		call.selector = primitive ? OF : OF_NULLABLE;
+		call.selector = OF_NULLABLE;
 		call.arguments = new Expression[] {createFieldAccessor(fieldNode, FieldAccess.ALWAYS_FIELD, source)};
 		setGeneratedBy(call, source);
 		Statement returnStatement = new ReturnStatement(call, pS, pE);

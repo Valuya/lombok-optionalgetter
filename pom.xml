@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   This POM does NOT compile anything: the overlay jar is produced by build.sh.
-  It exists only to publish that jar (deploy:deploy-file) to GitHub Packages and
-  to carry the forked coordinates. The <version> is set at deploy time to match
-  the upstream lombok version being overlaid (mvn ... -Drevision=1.18.46).
+  It serves two purposes:
+    1. It declares the official lombok jar (and ecj) as dependencies, so build.sh
+       can resolve them with `mvn dependency:copy-dependencies` instead of curl.
+       lombok.version is the single source of truth for which upstream to overlay.
+    2. It publishes the built overlay jar (deploy:deploy-file) to GitHub Packages
+       under the forked coordinates, versioned to match the overlaid lombok
+       (mvn ... -Drevision=1.18.46).
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -19,8 +23,29 @@
   <description>Official Project Lombok, overlaid with the @OptionalGetter annotation and handlers.</description>
 
   <properties>
-    <revision>0-SNAPSHOT</revision>
+    <!-- The upstream lombok version to overlay. Single source of truth: build.sh reads it, and
+         the published artifact version defaults to it. Bump this to track a new lombok release. -->
+    <lombok.version>1.18.46</lombok.version>
+    <!-- ecj is only needed to compile the (optional) Eclipse handler. -->
+    <ecj.version>3.33.0</ecj.version>
+    <revision>${lombok.version}</revision>
   </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <version>${lombok.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jdt</groupId>
+      <artifactId>ecj</artifactId>
+      <version>${ecj.version}</version>
+      <scope>provided</scope>
+      <optional>true</optional>
+    </dependency>
+  </dependencies>
 
   <distributionManagement>
     <repository>
