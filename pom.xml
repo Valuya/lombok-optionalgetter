@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  This POM does NOT compile anything: the overlay jar is produced by build.sh.
+  It exists only to publish that jar (deploy:deploy-file) to GitHub Packages and
+  to carry the forked coordinates. The <version> is set at deploy time to match
+  the upstream lombok version being overlaid (mvn ... -Drevision=1.18.46).
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>be.valuya</groupId>
+  <artifactId>lombok</artifactId>
+  <version>${revision}</version>
+  <packaging>jar</packaging>
+
+  <name>lombok (Valuya overlay: @OptionalGetter)</name>
+  <description>Official Project Lombok, overlaid with the @OptionalGetter annotation and handlers.</description>
+
+  <properties>
+    <revision>0-SNAPSHOT</revision>
+  </properties>
+
+  <distributionManagement>
+    <repository>
+      <id>github</id>
+      <name>GitHub Packages</name>
+      <url>https://maven.pkg.github.com/Valuya/lombok-optionalgetter</url>
+    </repository>
+  </distributionManagement>
+</project>

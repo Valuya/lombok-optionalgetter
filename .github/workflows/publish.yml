@@ -1,0 +1,57 @@
+name: Build & publish overlay
+
+on:
+  workflow_dispatch:
+    inputs:
+      lombok_version:
+        description: Upstream lombok version to overlay
+        required: true
+        default: "1.18.46"
+  push:
+    tags: ["v*"]
+
+jobs:
+  build-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Resolve lombok version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            V="${GITHUB_REF_NAME#v}"          # tag v1.18.46 -> 1.18.46
+          else
+            V="${{ github.event.inputs.lombok_version }}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch ecj (for the Eclipse handler)
+        run: |
+          mkdir -p deps
+          curl -fsSL -o deps/ecj.jar \
+            "https://repo1.maven.org/maven2/org/eclipse/jdt/ecj/3.33.0/ecj-3.33.0.jar"
+
+      - name: Build overlay jar (+ smoke test)
+        run: ./build.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Publish to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          mvn -B -s .github/settings.xml deploy:deploy-file \
+            -Drevision="$V" \
+            -DpomFile=pom.xml \
+            -Dfile="target/lombok-${V}.jar" \
+            -DrepositoryId=github \
+            -Durl="https://maven.pkg.github.com/Valuya/lombok-optionalgetter"
