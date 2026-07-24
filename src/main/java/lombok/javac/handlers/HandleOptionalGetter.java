@@ -28,6 +28,7 @@ import java.util.Collection;
 
 import lombok.AccessLevel;
 import lombok.OptionalGetter;
+import lombok.OptionalGetterConfigurationKeys;
 import lombok.experimental.Accessors;
 import lombok.core.AST.Kind;
 import lombok.core.AnnotationValues;
@@ -117,6 +118,12 @@ public class HandleOptionalGetter extends JavacAnnotationHandler<OptionalGetter>
 		return ((JCVariableDecl) fieldNode.get()).vartype instanceof JCPrimitiveTypeTree;
 	}
 
+	/** The configured accessor-name suffix (lombok.optionalGetter.suffix), defaulting to "Optional". */
+	private static String optionalGetterSuffix(JavacNode node) {
+		String suffix = node.getAst().readConfiguration(OptionalGetterConfigurationKeys.OPTIONAL_GETTER_SUFFIX);
+		return suffix == null ? OptionalGetterConfigurationKeys.DEFAULT_SUFFIX : suffix;
+	}
+
 	public void createGetterForField(AccessLevel level, JavacNode fieldNode, JavacNode source, boolean whineIfExists, List<JCAnnotation> onMethod) {
 		if (fieldNode.getKind() != Kind.FIELD || fieldNode.isEnumMember()) {
 			source.addError(NODE_NOT_SUPPORTED_ERR);
@@ -130,15 +137,17 @@ public class HandleOptionalGetter extends JavacAnnotationHandler<OptionalGetter>
 		JCVariableDecl fieldDecl = (JCVariableDecl) fieldNode.get();
 
 		AnnotationValues<Accessors> accessors = getAccessorsForField(fieldNode);
-		String methodName = toGetterName(fieldNode, accessors);
+		String suffix = optionalGetterSuffix(fieldNode);
+		String baseName = toGetterName(fieldNode, accessors);
 
-		if (methodName == null) {
+		if (baseName == null) {
 			source.addWarning("Not generating getter for this field: It does not fit your @Accessors prefix list.");
 			return;
 		}
+		String methodName = baseName + suffix;
 
 		for (String altName : toAllGetterNames(fieldNode, accessors)) {
-			switch (methodExists(altName, fieldNode, false, 0)) {
+			switch (methodExists(altName + suffix, fieldNode, false, 0)) {
 			case EXISTS_BY_LOMBOK:
 				return;
 			case EXISTS_BY_USER:
@@ -165,7 +174,7 @@ public class HandleOptionalGetter extends JavacAnnotationHandler<OptionalGetter>
 		JCExpression methodType = treeMaker.TypeApply(chainDotsString(field, OPTIONAL), List.of(valueType));
 
 		AnnotationValues<Accessors> accessors = getAccessorsForField(field);
-		Name methodName = field.toName(toGetterName(field, accessors));
+		Name methodName = field.toName(toGetterName(field, accessors) + optionalGetterSuffix(field));
 		boolean makeFinal = shouldMakeFinal(field, accessors);
 
 		// return java.util.Optional.ofNullable(this.field);

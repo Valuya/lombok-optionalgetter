@@ -55,7 +55,7 @@
          overlay can be re-cut without colliding with upstream's version: convention is
          <lombok.version>.<overlay-patch>, e.g. 1.18.46.1, 1.18.46.2, ... Bump the last component when
          the overlay changes but the overlaid lombok does not; reset it when lombok.version changes. -->
-    <revision>1.18.46.1</revision>
+    <revision>1.18.46.2</revision>
     <!-- ecj is only needed to compile the (optional) Eclipse handler. -->
     <ecj.version>3.33.0</ecj.version>
   </properties>

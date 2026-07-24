@@ -9,12 +9,19 @@ naturally with a `@NullMarked` / JSpecify codebase where a nullable field should
 import lombok.OptionalGetter;
 
 public class Customer {
-    @OptionalGetter private String vatNumber;   // -> Optional<String> getVatNumber()  (Optional.ofNullable)
-    @OptionalGetter private Contact billing;    // -> Optional<Contact> getBilling()    (Optional.ofNullable)
+    @OptionalGetter private String vatNumber;   // -> Optional<String> getVatNumberOptional()  (Optional.ofNullable)
+    @OptionalGetter private Contact billing;    // -> Optional<Contact> getBillingOptional()    (Optional.ofNullable)
 }
 ```
 
 - Reference field `T` -> `Optional<T>`, wrapped with `Optional.ofNullable(this.field)`.
+- **The accessor is named `getFooOptional()` by default** (a configurable suffix), so it sits alongside a plain
+  `@Getter`'s `getFoo()` without colliding and matches the common `getXxxOptional()` convention. Configure via
+  `lombok.config`:
+  ```
+  lombok.optionalGetter.suffix = Optional   # default; @OptionalGetter on `foo` -> getFooOptional()
+  # lombok.optionalGetter.suffix =          # empty -> getFoo()
+  ```
 - **Primitive fields are rejected** with a compile error: a primitive is never absent, so an `Optional` around
   it would be meaningless. Use a plain `@Getter` (or a boxed type) for those. At the *type* level
   (`@OptionalGetter` on a class), primitive fields are silently skipped rather than failing the whole class.

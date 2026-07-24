@@ -58,11 +58,12 @@ if [ -d "$DS/SCL.lombok" ]; then
 fi
 ( cd "$DS" && jar cf "../$(basename "$DESHADOW")" . )
 
-# 3. Compile the annotation + javac handler (mandatory — this is what a Maven/javac build uses).
+# 3. Compile the annotation + config keys + javac handler (mandatory — this is what a Maven/javac build uses).
 CP="$DESHADOW"; [ -n "$ECJ_JAR" ] && CP="$DESHADOW:$ECJ_JAR"
-echo "Compiling annotation + javac handler"
+echo "Compiling annotation + config keys + javac handler"
 javac "${JAVA_EXPORTS[@]}" -cp "$CP" -d "$CLASSES" \
   src/main/java/lombok/OptionalGetter.java \
+  src/main/java/lombok/OptionalGetterConfigurationKeys.java \
   src/main/java/lombok/javac/handlers/HandleOptionalGetter.java
 
 # 3b. Eclipse handler is best-effort: it only matters for the Eclipse IDE, and it compiles against ecj's
@@ -92,6 +93,13 @@ cp "$CLASSES/lombok/OptionalGetter.class" "$WORK/lombok/OptionalGetter.class"
 cp "$CLASSES/lombok/OptionalGetter\$AnyAnnotation.class" "$WORK/lombok/OptionalGetter\$AnyAnnotation.class"
 inject_scl 'lombok/OptionalGetter'
 inject_scl 'lombok/OptionalGetter$AnyAnnotation'
+# config-keys registry + its anonymous ConfigurationKey subclass ($1), loaded via SCL at processing time,
+# and its ConfigurationKeysLoader SPI file
+for c in "$CLASSES"/lombok/OptionalGetterConfigurationKeys*.class; do
+  rel="${c#$CLASSES/}"; inject_scl "${rel%.class}"
+done
+mkdir -p "$WORK/META-INF/services"
+echo 'lombok.OptionalGetterConfigurationKeys' > "$WORK/META-INF/services/lombok.core.configuration.ConfigurationKeysLoader"
 for c in "$CLASSES"/lombok/javac/handlers/HandleOptionalGetter*.class; do
   rel="${c#$CLASSES/}"; inject_scl "${rel%.class}"
 done
@@ -113,7 +121,8 @@ echo "Built: $OUT_JAR"
 
 # 5. Smoke test through the overlay jar (javac -proc:full — the same path a real build uses).
 ST="$OUT_DIR/smoke"; mkdir -p "$ST"
-# 5a. Positive: @OptionalGetter on reference fields yields Optional accessors; stock @Getter still works.
+# 5a. Positive: @OptionalGetter on reference fields yields Optional accessors named getFooOptional() by
+#     default (lombok.optionalGetter.suffix); stock @Getter still works.
 cat > "$ST/Person.java" <<'JAVA'
 public class Person {
   @lombok.OptionalGetter private String name;
@@ -122,12 +131,12 @@ public class Person {
   Person(String n, Integer a, int r) { this.name = n; this.age = a; this.rank = r; }
   public static void main(String[] x) {
     Person p = new Person(null, 42, 7);
-    java.util.Optional<String> n = p.getName();      // static-type assertion
-    java.util.Optional<Integer> a = p.getAge();
-    if (!p.getName().equals(java.util.Optional.empty())) throw new AssertionError("getName");
-    if (!p.getAge().equals(java.util.Optional.of(42))) throw new AssertionError("getAge");
+    java.util.Optional<String> n = p.getNameOptional();      // static-type assertion (default suffix)
+    java.util.Optional<Integer> a = p.getAgeOptional();
+    if (!p.getNameOptional().equals(java.util.Optional.empty())) throw new AssertionError("getNameOptional");
+    if (!p.getAgeOptional().equals(java.util.Optional.of(42))) throw new AssertionError("getAgeOptional");
     if (p.getRank() != 7) throw new AssertionError("getRank");
-    System.out.println("SMOKE OK: name=" + p.getName() + " age=" + p.getAge() + " rank=" + p.getRank());
+    System.out.println("SMOKE OK: nameOptional=" + p.getNameOptional() + " ageOptional=" + p.getAgeOptional() + " rank=" + p.getRank());
   }
 }
 JAVA
@@ -146,3 +155,20 @@ if grep -q 'primitive' "$ST/bad.log"; then
 else
   echo "SMOKE FAIL: primitive rejected but without the expected message:" >&2; cat "$ST/bad.log" >&2; exit 1
 fi
+
+# 5c. Config: lombok.optionalGetter.suffix overrides the accessor-name suffix (proves the config key is registered).
+CT="$OUT_DIR/configtest"; mkdir -p "$CT"
+printf 'lombok.optionalGetter.suffix = Opt\n' > "$CT/lombok.config"
+cat > "$CT/Cfg.java" <<'JAVA'
+public class Cfg {
+  @lombok.OptionalGetter private String tag;
+  Cfg(String t) { this.tag = t; }
+  public static void main(String[] x) {
+    java.util.Optional<String> t = new Cfg("hi").getTagOpt();   // suffix "Opt" from lombok.config
+    if (!new Cfg("hi").getTagOpt().equals(java.util.Optional.of("hi"))) throw new AssertionError("getTagOpt");
+    System.out.println("SMOKE OK: lombok.config suffix honoured -> getTagOpt() = " + new Cfg("hi").getTagOpt());
+  }
+}
+JAVA
+javac -proc:full -cp "$OUT_JAR" -d "$CT" "$CT/Cfg.java"
+java -cp "$CT:$OUT_JAR" Cfg

@@ -37,15 +37,19 @@ import java.lang.annotation.Target;
  * would be meaningless. Placing {@code @OptionalGetter} directly on a primitive field is a compile error; when
  * the annotation is applied to a whole class, primitive fields are simply skipped.
  * <p>
+ * The accessor name carries a configurable suffix, {@code Optional} by default, so it does not collide with a
+ * plain {@code @Getter} on the same field. Set {@code lombok.optionalGetter.suffix} in {@code lombok.config}
+ * to change it (an empty value produces the plain {@code getFoo()} name).
+ * <p>
  * Example:
  * <pre>
  *     private &#64;OptionalGetter String foo;
  * </pre>
  *
- * will generate:
+ * will generate (with the default suffix):
  *
  * <pre>
- *     public java.util.Optional&lt;String&gt; getFoo() {
+ *     public java.util.Optional&lt;String&gt; getFooOptional() {
  *         return java.util.Optional.ofNullable(this.foo);
  *     }
  * </pre>

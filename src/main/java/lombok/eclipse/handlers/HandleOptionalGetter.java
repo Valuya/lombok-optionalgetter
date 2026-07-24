@@ -33,6 +33,7 @@ import java.util.Set;
 
 import lombok.AccessLevel;
 import lombok.OptionalGetter;
+import lombok.OptionalGetterConfigurationKeys;
 import lombok.experimental.Accessors;
 import lombok.core.AST.Kind;
 import lombok.core.AnnotationValues;
@@ -111,6 +112,12 @@ public class HandleOptionalGetter extends EclipseAnnotationHandler<OptionalGette
 		return type != null && type.dimensions() == 0 && type.getTypeName().length == 1 && PRIMITIVES.contains(new String(type.getLastToken()));
 	}
 
+	/** The configured accessor-name suffix (lombok.optionalGetter.suffix), defaulting to "Optional". */
+	private static String optionalGetterSuffix(EclipseNode node) {
+		String suffix = node.getAst().readConfiguration(OptionalGetterConfigurationKeys.OPTIONAL_GETTER_SUFFIX);
+		return suffix == null ? OptionalGetterConfigurationKeys.DEFAULT_SUFFIX : suffix;
+	}
+
 	public void createGetterForField(AccessLevel level, EclipseNode fieldNode, EclipseNode errorNode, ASTNode source, boolean whineIfExists, List<Annotation> onMethod) {
 		if (fieldNode.getKind() != Kind.FIELD || fieldNode.isEnumMember()) {
 			errorNode.addError(NODE_NOT_SUPPORTED_ERR);
@@ -124,17 +131,19 @@ public class HandleOptionalGetter extends EclipseAnnotationHandler<OptionalGette
 		FieldDeclaration field = (FieldDeclaration) fieldNode.get();
 		AnnotationValues<Accessors> accessors = getAccessorsForField(fieldNode);
 		// The Optional getter always returns a reference type, so the accessor is a plain "get..." (never boolean "is...").
-		String getterName = toGetterName(fieldNode, false, accessors);
+		String baseName = toGetterName(fieldNode, false, accessors);
 
-		if (getterName == null) {
+		if (baseName == null) {
 			errorNode.addWarning("Not generating getter for this field: It does not fit your @Accessors prefix list.");
 			return;
 		}
+		String suffix = optionalGetterSuffix(fieldNode);
+		String getterName = baseName + suffix;
 
 		int modifier = toEclipseModifier(level) | (field.modifiers & ClassFileConstants.AccStatic);
 
 		for (String altName : toAllGetterNames(fieldNode, false, accessors)) {
-			switch (methodExists(altName, fieldNode, false, 0)) {
+			switch (methodExists(altName + suffix, fieldNode, false, 0)) {
 			case EXISTS_BY_LOMBOK:
 				return;
 			case EXISTS_BY_USER:
