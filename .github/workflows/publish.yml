@@ -1,4 +1,4 @@
-name: Build & publish overlay
+name: Build & publish overlay (GitHub Packages)
 
 on:
   workflow_dispatch:
@@ -17,35 +17,37 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up JDK 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "25"
 
-      - name: Resolve lombok version
+      - name: Resolve versions
         id: ver
         run: |
+          # LOMBOK = upstream version we overlay; RELEASE = the version we publish (its own lane)
+          LOMBOK="${{ github.event.inputs.lombok_version }}"
+          [ -n "$LOMBOK" ] || LOMBOK="$(mvn -q -DforceStdout help:evaluate -Dexpression=lombok.version)"
           if [ "${{ github.event_name }}" = "push" ]; then
-            V="${GITHUB_REF_NAME#v}"                       # tag v1.18.46 -> 1.18.46
-          elif [ -n "${{ github.event.inputs.lombok_version }}" ]; then
-            V="${{ github.event.inputs.lombok_version }}"
+            RELEASE="${GITHUB_REF_NAME#v}"                  # tag v1.18.46.1 -> 1.18.46.1
           else
-            V="$(mvn -q -DforceStdout help:evaluate -Dexpression=lombok.version)"   # pom is the source of truth
+            RELEASE="$(mvn -q -DforceStdout help:evaluate -Dexpression=revision)"
           fi
-          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "lombok=$LOMBOK"   >> "$GITHUB_OUTPUT"
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
 
       # build.sh resolves lombok + ecj via Maven; no downloads here.
       - name: Build overlay jar (+ smoke test)
-        run: ./build.sh "${{ steps.ver.outputs.version }}"
+        run: RELEASE_VERSION="${{ steps.ver.outputs.release }}" ./build.sh "${{ steps.ver.outputs.lombok }}"
 
       - name: Publish to GitHub Packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          V="${{ steps.ver.outputs.version }}"
+          V="${{ steps.ver.outputs.release }}"
           mvn -B -s .github/settings.xml deploy:deploy-file \
             -Drevision="$V" \
             -DpomFile=pom.xml \

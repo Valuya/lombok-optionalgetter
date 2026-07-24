@@ -15,13 +15,15 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 MVN="${MVN:-mvn}"
+# LOMBOK_VERSION = the upstream lombok we overlay; RELEASE_VERSION = the version we publish (its own lane).
 LOMBOK_VERSION="${1:-${LOMBOK_VERSION:-$("$MVN" -q -DforceStdout help:evaluate -Dexpression=lombok.version)}}"
+RELEASE_VERSION="${RELEASE_VERSION:-$("$MVN" -q -DforceStdout help:evaluate -Dexpression=revision)}"
 OUT_DIR="target"
 DEPS="$OUT_DIR/deps"
 WORK="$OUT_DIR/work"
 CLASSES="$OUT_DIR/classes"
 DESHADOW="$OUT_DIR/lombok-deshadow.jar"
-OUT_JAR="$OUT_DIR/lombok-${LOMBOK_VERSION}.jar"
+OUT_JAR="$OUT_DIR/lombok-${RELEASE_VERSION}.jar"
 
 JAVA_EXPORTS=(
   --add-exports jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED
@@ -34,6 +36,7 @@ JAVA_EXPORTS=(
 rm -rf "$OUT_DIR"; mkdir -p "$WORK" "$CLASSES" "$DEPS"
 
 # 1. Resolve lombok + ecj into target/deps via Maven (respects pom.xml versions).
+echo "Overlaying lombok ${LOMBOK_VERSION}  ->  publishing as ${RELEASE_VERSION}"
 echo "Resolving dependencies via Maven..."
 "$MVN" -q -Dlombok.version="$LOMBOK_VERSION" \
   -DoutputDirectory="$PWD/$DEPS" -DincludeScope=provided \

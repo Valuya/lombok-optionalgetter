@@ -48,12 +48,16 @@
   </scm>
 
   <properties>
-    <!-- The upstream lombok version to overlay. Single source of truth: build.sh reads it, and
-         the published artifact version defaults to it. Bump this to track a new lombok release. -->
+    <!-- The upstream lombok version this overlay wraps. build.sh reads it to resolve + overlay that jar.
+         Bump it to track a new lombok release. -->
     <lombok.version>1.18.46</lombok.version>
+    <!-- The published artifact version. Its own release lane, independent of lombok.version, so the
+         overlay can be re-cut without colliding with upstream's version: convention is
+         <lombok.version>.<overlay-patch>, e.g. 1.18.46.1, 1.18.46.2, ... Bump the last component when
+         the overlay changes but the overlaid lombok does not; reset it when lombok.version changes. -->
+    <revision>1.18.46.1</revision>
     <!-- ecj is only needed to compile the (optional) Eclipse handler. -->
     <ecj.version>3.33.0</ecj.version>
-    <revision>${lombok.version}</revision>
   </properties>
 
   <dependencies>
