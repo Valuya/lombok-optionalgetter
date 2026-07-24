@@ -60,15 +60,12 @@ jobs:
           mkdir -p ~/.gnupg && echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
           gpgconf --kill gpg-agent || true
 
-      - name: Assemble, sign, and upload the Central bundle
+      - name: Assemble and sign the Central bundle
         env:
-          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
-          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
           V="${{ steps.cfg.outputs.version }}"
-          PT="${{ steps.cfg.outputs.ptype }}"
           JAR="target/lombok-${V}.jar"
           DIR="bundle/io/github/valuya/lombok/${V}"
           BASE="${DIR}/lombok-${V}"
@@ -124,6 +121,28 @@ jobs:
           ( cd bundle && zip -qr ../central-bundle.zip . )
           echo "Bundle contents:"; unzip -l central-bundle.zip
 
+      # Always keep the assembled bundle as a downloadable artifact (handy for inspection / dry runs).
+      - name: Upload bundle as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: central-bundle-${{ steps.cfg.outputs.version }}
+          path: central-bundle.zip
+          if-no-files-found: error
+
+      - name: Upload to Central Portal
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.cfg.outputs.version }}"
+          PT="${{ steps.cfg.outputs.ptype }}"
+          if [ -z "${CENTRAL_USERNAME:-}" ] || [ -z "${CENTRAL_PASSWORD:-}" ]; then
+            echo "::warning::CENTRAL_USERNAME / CENTRAL_PASSWORD not set — skipping upload (dry run)."
+            echo "The signed bundle was produced and saved as the 'central-bundle-${V}' artifact."
+            echo "Add the token secrets and re-run to publish."
+            exit 0
+          fi
           AUTH=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 -w0)
           echo "Uploading to Central Portal (publishingType=$PT)..."
           HTTP=$(curl -sS -o resp.txt -w '%{http_code}' -X POST \
