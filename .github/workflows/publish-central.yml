@@ -8,7 +8,7 @@ name: Publish to Maven Central
 #   CENTRAL_USERNAME  - Central Portal token username       (you: central.sonatype.com -> Account -> Generate token)
 #   CENTRAL_PASSWORD  - Central Portal token password       (same place)
 #
-# The `be.valuya` namespace must be verified once in the Central Portal before the first publish.
+# The `io.github.valuya` namespace must be verified once in the Central Portal before the first publish.
 
 on:
   workflow_dispatch:
@@ -49,7 +49,7 @@ jobs:
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "ptype=$PT" >> "$GITHUB_OUTPUT"
-          echo "Publishing be.valuya:lombok:$V ($PT)"
+          echo "Publishing io.github.valuya:lombok:$V ($PT)"
 
       - name: Build overlay jar (+ smoke test)
         run: ./build.sh "${{ steps.cfg.outputs.version }}"
@@ -70,7 +70,7 @@ jobs:
           V="${{ steps.cfg.outputs.version }}"
           PT="${{ steps.cfg.outputs.ptype }}"
           JAR="target/lombok-${V}.jar"
-          DIR="bundle/be/valuya/lombok/${V}"
+          DIR="bundle/io/github/valuya/lombok/${V}"
           BASE="${DIR}/lombok-${V}"
           mkdir -p "$DIR"
 
@@ -93,7 +93,7 @@ jobs:
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
             <modelVersion>4.0.0</modelVersion>
-            <groupId>be.valuya</groupId>
+            <groupId>io.github.valuya</groupId>
             <artifactId>lombok</artifactId>
             <version>${V}</version>
             <packaging>jar</packaging>

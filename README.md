@@ -57,13 +57,13 @@ a **negative** one asserting `@OptionalGetter` on a primitive fails to compile w
 
 ## Use it (GitHub Packages)
 
-The publish workflow deploys the overlay as `be.valuya:lombok:<upstream-version>` to this repo's GitHub
+The publish workflow deploys the overlay as `io.github.valuya:lombok:<upstream-version>` to this repo's GitHub
 Packages Maven registry. The artifact coordinate is forked (only the group id) so it never clashes with upstream
 on a resolver; the jar's internal lombok version is unchanged.
 
 ```xml
 <dependency>
-  <groupId>be.valuya</groupId>
+  <groupId>io.github.valuya</groupId>
   <artifactId>lombok</artifactId>
   <version>1.18.46</version>
   <scope>provided</scope>
