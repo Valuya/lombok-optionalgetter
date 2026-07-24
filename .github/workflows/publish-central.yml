@@ -1,0 +1,136 @@
+name: Publish to Maven Central
+
+# Publishes the overlay jar to Maven Central via the Central Portal upload API.
+#
+# Required repository secrets:
+#   GPG_PRIVATE_KEY   - ASCII-armored private signing key   (already set)
+#   GPG_PASSPHRASE    - passphrase for that key             (already set)
+#   CENTRAL_USERNAME  - Central Portal token username       (you: central.sonatype.com -> Account -> Generate token)
+#   CENTRAL_PASSWORD  - Central Portal token password       (same place)
+#
+# The `be.valuya` namespace must be verified once in the Central Portal before the first publish.
+
+on:
+  workflow_dispatch:
+    inputs:
+      lombok_version:
+        description: Upstream lombok version to overlay (blank = pom's lombok.version)
+        required: false
+        default: ""
+      publishing_type:
+        description: AUTOMATIC (publish immediately) or USER_MANAGED (stage, then release in the portal)
+        required: true
+        default: USER_MANAGED
+        type: choice
+        options: [USER_MANAGED, AUTOMATIC]
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Resolve version & publishing type
+        id: cfg
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            V="${GITHUB_REF_NAME#v}"; PT="AUTOMATIC"
+          elif [ -n "${{ github.event.inputs.lombok_version }}" ]; then
+            V="${{ github.event.inputs.lombok_version }}"; PT="${{ github.event.inputs.publishing_type }}"
+          else
+            V="$(mvn -q -DforceStdout help:evaluate -Dexpression=lombok.version)"; PT="${{ github.event.inputs.publishing_type }}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "ptype=$PT" >> "$GITHUB_OUTPUT"
+          echo "Publishing be.valuya:lombok:$V ($PT)"
+
+      - name: Build overlay jar (+ smoke test)
+        run: ./build.sh "${{ steps.cfg.outputs.version }}"
+
+      - name: Import GPG signing key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          mkdir -p ~/.gnupg && echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent || true
+
+      - name: Assemble, sign, and upload the Central bundle
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.cfg.outputs.version }}"
+          PT="${{ steps.cfg.outputs.ptype }}"
+          JAR="target/lombok-${V}.jar"
+          DIR="bundle/be/valuya/lombok/${V}"
+          BASE="${DIR}/lombok-${V}"
+          mkdir -p "$DIR"
+
+          # main artifact
+          cp "$JAR" "${BASE}.jar"
+
+          # sources jar (our added sources)
+          jar cf "${BASE}-sources.jar" -C src/main/java .
+
+          # javadoc jar: document the public API (the annotation). The handlers need compiler internals so they're
+          # excluded; the annotation references lombok.AccessLevel/Getter, so the resolved lombok jar is on the path.
+          javadoc -quiet -cp "$(ls target/deps/lombok-*.jar | head -1)" -d target/javadoc src/main/java/lombok/OptionalGetter.java || true
+          [ -e target/javadoc/index.html ] || { mkdir -p target/javadoc && echo "See https://github.com/Valuya/lombok-optionalgetter" > target/javadoc/README; }
+          jar cf "${BASE}-javadoc.jar" -C target/javadoc .
+
+          # a clean, self-contained consumer pom (the jar bundles all of lombok, so it declares no dependencies)
+          cat > "${BASE}.pom" <<POM
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>be.valuya</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${V}</version>
+            <packaging>jar</packaging>
+            <name>lombok (Valuya overlay: @OptionalGetter)</name>
+            <description>Official Project Lombok ${V}, overlaid with the @OptionalGetter annotation and handlers (getter returning Optional&lt;T&gt;).</description>
+            <url>https://github.com/Valuya/lombok-optionalgetter</url>
+            <licenses>
+              <license><name>MIT License</name><url>https://opensource.org/licenses/MIT</url><distribution>repo</distribution></license>
+            </licenses>
+            <developers>
+              <developer><id>ymajoros</id><name>Yannick Majoros</name><email>yannick@valuya.be</email><organization>Valuya SRL</organization><organizationUrl>https://www.valuya.be</organizationUrl></developer>
+            </developers>
+            <scm>
+              <connection>scm:git:https://github.com/Valuya/lombok-optionalgetter.git</connection>
+              <developerConnection>scm:git:ssh://git@github.com/Valuya/lombok-optionalgetter.git</developerConnection>
+              <url>https://github.com/Valuya/lombok-optionalgetter</url>
+            </scm>
+          </project>
+          POM
+
+          # sign + checksum every artifact
+          for f in "${BASE}.jar" "${BASE}-sources.jar" "${BASE}-javadoc.jar" "${BASE}.pom"; do
+            gpg --batch --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --armor --detach-sign "$f"
+            md5sum  "$f" | cut -d' ' -f1 > "$f.md5"
+            sha1sum "$f" | cut -d' ' -f1 > "$f.sha1"
+          done
+
+          ( cd bundle && zip -qr ../central-bundle.zip . )
+          echo "Bundle contents:"; unzip -l central-bundle.zip
+
+          AUTH=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 -w0)
+          echo "Uploading to Central Portal (publishingType=$PT)..."
+          HTTP=$(curl -sS -o resp.txt -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $AUTH" \
+            -F "bundle=@central-bundle.zip" \
+            "https://central.sonatype.com/api/v1/publisher/upload?name=lombok-${V}&publishingType=${PT}")
+          echo "HTTP $HTTP"; cat resp.txt; echo
+          if [ "$HTTP" -ge 300 ]; then echo "Upload failed"; exit 1; fi
+          echo "Deployment id: $(cat resp.txt)"
+          echo "Track it at https://central.sonatype.com/publishing/deployments"

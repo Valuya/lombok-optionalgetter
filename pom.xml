@@ -21,6 +21,31 @@
 
   <name>lombok (Valuya overlay: @OptionalGetter)</name>
   <description>Official Project Lombok, overlaid with the @OptionalGetter annotation and handlers.</description>
+  <url>https://github.com/Valuya/lombok-optionalgetter</url>
+
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/licenses/MIT</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>ymajoros</id>
+      <name>Yannick Majoros</name>
+      <email>yannick@valuya.be</email>
+      <organization>Valuya SRL</organization>
+      <organizationUrl>https://www.valuya.be</organizationUrl>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/Valuya/lombok-optionalgetter.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/Valuya/lombok-optionalgetter.git</developerConnection>
+    <url>https://github.com/Valuya/lombok-optionalgetter</url>
+  </scm>
 
   <properties>
     <!-- The upstream lombok version to overlay. Single source of truth: build.sh reads it, and
