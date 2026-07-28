@@ -172,3 +172,24 @@ public class Cfg {
 JAVA
 javac -proc:full -cp "$OUT_JAR" -d "$CT" "$CT/Cfg.java"
 java -cp "$CT:$OUT_JAR" Cfg
+
+# 5d. A TYPE_USE @Nullable on the field must NOT be copied onto the Optional<T> return (was a compile error).
+ND="$OUT_DIR/nullity"; mkdir -p "$ND"
+cat > "$ND/Nn.java" <<'JAVA'
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+public class Nn {
+  @Target(ElementType.TYPE_USE) @Retention(RetentionPolicy.CLASS) @interface Nullable {}
+  @lombok.OptionalGetter @Nullable String note;
+  Nn(String n) { this.note = n; }
+  public static void main(String[] x) {
+    java.util.Optional<String> n = new Nn(null).getNoteOptional();
+    if (!new Nn(null).getNoteOptional().equals(java.util.Optional.empty())) throw new AssertionError("getNoteOptional");
+    System.out.println("SMOKE OK: TYPE_USE @Nullable field not leaked onto Optional return -> " + new Nn("x").getNoteOptional());
+  }
+}
+JAVA
+javac -proc:full -cp "$OUT_JAR" -d "$ND" "$ND/Nn.java"
+java -cp "$ND:$OUT_JAR" Nn

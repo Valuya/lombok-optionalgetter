@@ -118,6 +118,21 @@ public class HandleOptionalGetter extends EclipseAnnotationHandler<OptionalGette
 		return suffix == null ? OptionalGetterConfigurationKeys.DEFAULT_SUFFIX : suffix;
 	}
 
+	// Nullness markers must not be copied onto the Optional accessor: its return is never null, and a
+	// TYPE_USE @Nullable (e.g. JSpecify) on Optional<T> is a compile error.
+	private static final java.util.Set<String> NULLITY_ANNOTATION_NAMES = new java.util.HashSet<String>(
+		java.util.Arrays.asList("Nullable", "NonNull", "Nonnull", "CheckForNull"));
+
+	private static Annotation[] stripNullityAnnotations(Annotation[] annotations) {
+		if (annotations == null) return null;
+		java.util.List<Annotation> kept = new java.util.ArrayList<Annotation>();
+		for (Annotation annotation : annotations) {
+			String simpleName = annotation.type == null ? "" : new String(annotation.type.getLastToken());
+			if (!NULLITY_ANNOTATION_NAMES.contains(simpleName)) kept.add(annotation);
+		}
+		return kept.toArray(new Annotation[0]);
+	}
+
 	public void createGetterForField(AccessLevel level, EclipseNode fieldNode, EclipseNode errorNode, ASTNode source, boolean whineIfExists, List<Annotation> onMethod) {
 		if (fieldNode.getKind() != Kind.FIELD || fieldNode.isEnumMember()) {
 			errorNode.addError(NODE_NOT_SUPPORTED_ERR);
@@ -217,7 +232,7 @@ public class HandleOptionalGetter extends EclipseAnnotationHandler<OptionalGette
 
 			method.annotations = copyAnnotations(source,
 				onMethod.toArray(new Annotation[0]),
-				findCopyableAnnotations(fieldNode),
+				stripNullityAnnotations(findCopyableAnnotations(fieldNode)),
 				findCopyableToGetterAnnotations(fieldNode, fluent),
 				checkerFramework,
 				deprecated);

@@ -41,6 +41,8 @@ import com.sun.tools.javac.code.Flags;
 import com.sun.tools.javac.tree.JCTree.JCAnnotation;
 import com.sun.tools.javac.tree.JCTree.JCBlock;
 import com.sun.tools.javac.tree.JCTree.JCExpression;
+import com.sun.tools.javac.tree.JCTree.JCFieldAccess;
+import com.sun.tools.javac.tree.JCTree.JCIdent;
 import com.sun.tools.javac.tree.JCTree.JCMethodDecl;
 import com.sun.tools.javac.tree.JCTree.JCPrimitiveTypeTree;
 import com.sun.tools.javac.tree.JCTree.JCStatement;
@@ -124,6 +126,25 @@ public class HandleOptionalGetter extends JavacAnnotationHandler<OptionalGetter>
 		return suffix == null ? OptionalGetterConfigurationKeys.DEFAULT_SUFFIX : suffix;
 	}
 
+	// Nullness markers must not be copied onto the Optional accessor: its return is never null, and a
+	// TYPE_USE @Nullable (e.g. JSpecify) placed on Optional<T> is a compile error ("not expected here").
+	private static final java.util.Set<String> NULLITY_ANNOTATION_NAMES = new java.util.HashSet<String>(
+		java.util.Arrays.asList("Nullable", "NonNull", "Nonnull", "CheckForNull"));
+
+	private static List<JCAnnotation> stripNullityAnnotations(List<JCAnnotation> annotations) {
+		List<JCAnnotation> kept = List.nil();
+		for (JCAnnotation annotation : annotations) {
+			if (!NULLITY_ANNOTATION_NAMES.contains(annotationSimpleName(annotation.annotationType))) kept = kept.append(annotation);
+		}
+		return kept;
+	}
+
+	private static String annotationSimpleName(com.sun.tools.javac.tree.JCTree annotationType) {
+		if (annotationType instanceof JCFieldAccess) return ((JCFieldAccess) annotationType).name.toString();
+		if (annotationType instanceof JCIdent) return ((JCIdent) annotationType).name.toString();
+		return "";
+	}
+
 	public void createGetterForField(AccessLevel level, JavacNode fieldNode, JavacNode source, boolean whineIfExists, List<JCAnnotation> onMethod) {
 		if (fieldNode.getKind() != Kind.FIELD || fieldNode.isEnumMember()) {
 			source.addError(NODE_NOT_SUPPORTED_ERR);
@@ -187,7 +208,7 @@ public class HandleOptionalGetter extends JavacAnnotationHandler<OptionalGetter>
 		List<JCExpression> throwsClauses = List.nil();
 		JCExpression annotationMethodDefaultValue = null;
 
-		List<JCAnnotation> copyableAnnotations = findCopyableAnnotations(field);
+		List<JCAnnotation> copyableAnnotations = stripNullityAnnotations(findCopyableAnnotations(field));
 
 		// Copying Jackson annotations is required for fluent accessors (otherwise Jackson would not find the accessor).
 		boolean fluent = accessors.isExplicit("fluent");
