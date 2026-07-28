@@ -51,6 +51,12 @@ The result is a drop-in replacement for `org.projectlombok:lombok` that addition
 `@OptionalGetter`. Because it only re-wraps the official jar, **it tracks upstream by version number** — bump
 `lombok.version` in `pom.xml` (or pass a version to `build.sh`) and rebuild; there is no source fork to rebase.
 
+**Upstream tracking is automated** ([`track-upstream.yml`](.github/workflows/track-upstream.yml)): a daily
+job checks Maven Central for a new Lombok release and, *only if the overlay still compiles + smoke-tests
+against it*, bumps the version and publishes `io.github.valuya:lombok:<new>.1`. A breaking internal-API change
+fails the run instead of shipping a broken jar, so it stays close to upstream without ever auto-publishing
+something that doesn't work.
+
 ## Build
 
 Needs a JDK (25 verified) and Maven. `build.sh` resolves the official lombok jar and ecj as Maven dependencies
