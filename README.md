@@ -110,6 +110,16 @@ public class Customer {
 That's it. Everything else in your build (all existing `@Getter`, `@Builder`, … usage) is unchanged, because
 this jar *is* official lombok with one annotation added.
 
+### IntelliJ IDEA support
+
+The bundled Lombok IDE plugin only knows Lombok's built-in annotations, so out of the box IntelliJ shows the
+generated `getXxxOptional()` calls as *unresolved*. Install the companion plugin —
+**[lombok-optionalgetter-idea](https://github.com/Valuya/lombok-optionalgetter-idea)** — to restore code
+completion, find-usages and go-to-declaration for them. Grab the zip from its
+[latest release](https://github.com/Valuya/lombok-optionalgetter-idea/releases/latest) and
+*Settings → Plugins → ⚙ → Install Plugin from Disk…*. (Compiles fine without it — this only affects the editor;
+Eclipse users don't need it either, the ecj handler covers that IDE.)
+
 > The overlay is also published to this repo's GitHub Packages registry
 > (`https://maven.pkg.github.com/Valuya/lombok-optionalgetter`) as a secondary mirror; Maven Central is the
 > primary distribution and needs no repository configuration.
