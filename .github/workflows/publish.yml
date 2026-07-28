@@ -1,14 +1,14 @@
 name: Build & publish overlay (GitHub Packages)
 
 on:
+  # Manual only. Maven Central (see publish-central.yml) is the primary distribution and is what release tags
+  # publish to; this GitHub Packages mirror is published on demand to avoid duplicate-version failures on re-tags.
   workflow_dispatch:
     inputs:
       lombok_version:
         description: Upstream lombok version to overlay (blank = pom's lombok.version)
         required: false
         default: ""
-  push:
-    tags: ["v*"]
 
 jobs:
   build-publish:

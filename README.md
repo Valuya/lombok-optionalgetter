@@ -1,5 +1,9 @@
 # lombok-optionalgetter
 
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.valuya/lombok?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.valuya/lombok)
+[![CI](https://github.com/Valuya/lombok-optionalgetter/actions/workflows/ci.yml/badge.svg)](https://github.com/Valuya/lombok-optionalgetter/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Adds a single annotation, **`@lombok.OptionalGetter`**, to [Project Lombok](https://projectlombok.org/):
 a variant of `@Getter` whose generated accessor returns `java.util.Optional<T>` instead of `T`. It pairs
 naturally with a `@NullMarked` / JSpecify codebase where a nullable field should surface to callers as an
@@ -58,27 +62,57 @@ build uses — always builds; the Eclipse handler is best-effort (skipped, with 
 ./build.sh 1.18.46         # overlay a specific upstream version instead
 ```
 
-`build.sh` runs two smoke tests through the built jar (`javac -proc:full`, the same path a real build uses):
-a **positive** one asserting the generated `Optional` accessors behave (null reference -> `Optional.empty`), and
-a **negative** one asserting `@OptionalGetter` on a primitive fails to compile with the expected error.
+`build.sh` runs four smoke tests through the built jar (`javac -proc:full`, the same path a real build uses):
+the generated `Optional` accessors behave (null reference -> `Optional.empty`); `@OptionalGetter` on a
+primitive fails to compile with a clear error; `lombok.optionalGetter.suffix` in `lombok.config` is honoured;
+and a field's `@Nullable` (incl. JSpecify TYPE_USE) is **not** copied onto the `Optional<T>` return.
 
-## Use it (GitHub Packages)
+## Quick start
 
-The publish workflow deploys the overlay as `io.github.valuya:lombok:<upstream-version>` to this repo's GitHub
-Packages Maven registry. The artifact coordinate is forked (only the group id) so it never clashes with upstream
-on a resolver; the jar's internal lombok version is unchanged.
+The overlay is published to **Maven Central** as `io.github.valuya:lombok`, a drop-in replacement for
+`org.projectlombok:lombok` that additionally understands `@OptionalGetter`. The version is `<upstream lombok
+version>.<overlay patch>` (e.g. `1.18.46.3` overlays upstream lombok `1.18.46`).
+
+**1. Replace the lombok coordinate** — no extra repository or credentials, Central is resolved by default:
 
 ```xml
 <dependency>
   <groupId>io.github.valuya</groupId>
   <artifactId>lombok</artifactId>
-  <version>1.18.46</version>
+  <version>1.18.46.3</version>
   <scope>provided</scope>
 </dependency>
 ```
 
-Point Maven at `https://maven.pkg.github.com/Valuya/lombok-optionalgetter` (see the repo's Packages page for
-the exact `<repository>` / auth snippet).
+Gradle: `compileOnly 'io.github.valuya:lombok:1.18.46.3'` + `annotationProcessor 'io.github.valuya:lombok:1.18.46.3'`.
+
+**2. (optional) Pick the accessor name** in `lombok.config` at your project root — the default is already the
+`Optional` suffix:
+
+```
+# @OptionalGetter on `foo` -> getFooOptional()  (default)
+lombok.optionalGetter.suffix = Optional
+# set it empty for the plain name: getFoo()
+```
+
+**3. Annotate a field** and use the generated accessor:
+
+```java
+public class Customer {
+    @OptionalGetter private String vatNumber;      // generated: Optional<String> getVatNumberOptional()
+
+    void print() {
+        getVatNumberOptional().ifPresent(System.out::println);   // no null check needed
+    }
+}
+```
+
+That's it. Everything else in your build (all existing `@Getter`, `@Builder`, … usage) is unchanged, because
+this jar *is* official lombok with one annotation added.
+
+> The overlay is also published to this repo's GitHub Packages registry
+> (`https://maven.pkg.github.com/Valuya/lombok-optionalgetter`) as a secondary mirror; Maven Central is the
+> primary distribution and needs no repository configuration.
 
 ## Verification status
 
@@ -102,3 +136,17 @@ the exact `<repository>` / auth snippet).
 | `src/main/java/lombok/eclipse/handlers/HandleOptionalGetter.java` | eclipse/ecj handler |
 | `build.sh` | resolve deps via Maven, deshadow official jar, compile handlers, inject, repackage, smoke-test |
 | `pom.xml` | declares the lombok/ecj dependencies (source of `lombok.version`) and the publish coordinates |
+
+## Changelog
+
+- **1.18.46.3** — `@Nullable` (and other nullness markers) are no longer copied onto the `Optional<T>` return;
+  a JSpecify TYPE_USE `@Nullable` on `Optional<T>` was a javac error. Proven across ~1,500 accessors in a real
+  codebase.
+- **1.18.46.2** — configurable accessor suffix via `lombok.optionalGetter.suffix` (default `Optional`, so
+  `@OptionalGetter` on `foo` generates `getFooOptional()`).
+- **1.18.46.1** — first Maven Central release: `@OptionalGetter`, primitives rejected, javac + eclipse handlers.
+
+## License
+
+MIT — see [LICENSE](LICENSE). This project redistributes [Project Lombok](https://projectlombok.org/) (also MIT)
+overlaid with the additional annotation and handlers; the added sources derive from lombok's own `@Getter`.

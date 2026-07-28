@@ -140,6 +140,11 @@ jobs:
           set -euo pipefail
           V="${{ steps.cfg.outputs.release }}"
           PT="${{ steps.cfg.outputs.ptype }}"
+          # Idempotent: a version already on Central can't be re-uploaded (and a release/tag re-run shouldn't fail).
+          if curl -sfI "https://repo1.maven.org/maven2/io/github/valuya/lombok/${V}/lombok-${V}.jar" >/dev/null 2>&1; then
+            echo "io.github.valuya:lombok:${V} is already on Maven Central — nothing to publish."
+            exit 0
+          fi
           if [ -z "${CENTRAL_USERNAME:-}" ] || [ -z "${CENTRAL_PASSWORD:-}" ]; then
             echo "::warning::CENTRAL_USERNAME / CENTRAL_PASSWORD not set — skipping upload (dry run)."
             echo "The signed bundle was produced and saved as the 'central-bundle-${V}' artifact."

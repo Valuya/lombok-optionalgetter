@@ -1,0 +1,8 @@
+lombok-optionalgetter
+Copyright (c) 2026 Valuya SRL
+
+This product redistributes Project Lombok (https://projectlombok.org/),
+Copyright (c) 2009-2025 The Project Lombok Authors, licensed under the MIT
+License, overlaid with the additional @OptionalGetter annotation and its javac
+and eclipse handlers. Those added sources derive from Project Lombok's own
+@Getter sources and are likewise MIT-licensed.
