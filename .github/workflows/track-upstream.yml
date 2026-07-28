@@ -1,0 +1,63 @@
+name: Track upstream Lombok
+
+# Checks daily for a new Project Lombok release and, if the overlay still builds + smoke-tests against it,
+# bumps the version and cuts a release (which publishes to Maven Central via publish-central.yml).
+# If Lombok changed its internal API and the handlers no longer compile, the run fails and nothing is
+# published — that red run is the signal to update the handlers by hand.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"        # daily, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Detect versions
+        id: v
+        run: |
+          CURRENT=$(mvn -q -DforceStdout help:evaluate -Dexpression=lombok.version)
+          LATEST=$(curl -sf https://repo1.maven.org/maven2/org/projectlombok/lombok/maven-metadata.xml \
+                   | grep -oP '(?<=<release>)[^<]+')
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST"   >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "Up to date on Lombok $CURRENT."; echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New Lombok: $CURRENT -> $LATEST"; echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump and smoke-test the overlay against the new Lombok
+        if: steps.v.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          NEW="${{ steps.v.outputs.latest }}"; REV="${NEW}.1"
+          sed -i "s#<lombok.version>[^<]*</lombok.version>#<lombok.version>${NEW}</lombok.version>#" pom.xml
+          sed -i "s#<revision>[^<]*</revision>#<revision>${REV}</revision>#" pom.xml
+          # Compiles the handlers against the new Lombok internals and runs the smoke tests.
+          ./build.sh
+
+      - name: Commit + release (release publishes to Maven Central)
+        if: steps.v.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NEW="${{ steps.v.outputs.latest }}"; REV="${NEW}.1"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pom.xml
+          git commit -m "chore: track upstream Lombok ${NEW} (publish ${REV})"
+          git push
+          gh release create "v${REV}" --title "v${REV}" --latest \
+            --notes "Overlay of Project Lombok ${NEW} with @OptionalGetter. Published to Maven Central as io.github.valuya:lombok:${REV}."
