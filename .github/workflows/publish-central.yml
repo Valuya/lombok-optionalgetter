@@ -51,7 +51,7 @@ jobs:
           echo "lombok=$LOMBOK"   >> "$GITHUB_OUTPUT"
           echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
           echo "ptype=$PT"        >> "$GITHUB_OUTPUT"
-          echo "Overlaying lombok $LOMBOK -> publishing io.github.valuya:lombok:$RELEASE ($PT)"
+          echo "Overlaying lombok $LOMBOK -> publishing io.github.valuya:lombok-optionalgetter-overlay:$RELEASE ($PT)"
 
       - name: Build overlay jar (+ smoke test)
         run: RELEASE_VERSION="${{ steps.cfg.outputs.release }}" ./build.sh "${{ steps.cfg.outputs.lombok }}"
@@ -70,8 +70,8 @@ jobs:
           V="${{ steps.cfg.outputs.release }}"
           LOMBOK="${{ steps.cfg.outputs.lombok }}"
           JAR="target/lombok-${V}.jar"
-          DIR="bundle/io/github/valuya/lombok/${V}"
-          BASE="${DIR}/lombok-${V}"
+          DIR="bundle/io/github/valuya/lombok-optionalgetter-overlay/${V}"
+          BASE="${DIR}/lombok-optionalgetter-overlay-${V}"
           mkdir -p "$DIR"
 
           # main artifact
@@ -94,10 +94,10 @@ jobs:
                    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
             <modelVersion>4.0.0</modelVersion>
             <groupId>io.github.valuya</groupId>
-            <artifactId>lombok</artifactId>
+            <artifactId>lombok-optionalgetter-overlay</artifactId>
             <version>${V}</version>
             <packaging>jar</packaging>
-            <name>lombok (Valuya overlay: @OptionalGetter)</name>
+            <name>OptionalGetter overlay for Project Lombok</name>
             <description>Official Project Lombok ${LOMBOK}, overlaid with the @OptionalGetter annotation and handlers (getter returning Optional&lt;T&gt;). Published as ${V}.</description>
             <url>https://github.com/Valuya/lombok-optionalgetter</url>
             <licenses>
@@ -141,8 +141,8 @@ jobs:
           V="${{ steps.cfg.outputs.release }}"
           PT="${{ steps.cfg.outputs.ptype }}"
           # Idempotent: a version already on Central can't be re-uploaded (and a release/tag re-run shouldn't fail).
-          if curl -sfI "https://repo1.maven.org/maven2/io/github/valuya/lombok/${V}/lombok-${V}.jar" >/dev/null 2>&1; then
-            echo "io.github.valuya:lombok:${V} is already on Maven Central — nothing to publish."
+          if curl -sfI "https://repo1.maven.org/maven2/io/github/valuya/lombok-optionalgetter-overlay/${V}/lombok-optionalgetter-overlay-${V}.jar" >/dev/null 2>&1; then
+            echo "io.github.valuya:lombok-optionalgetter-overlay:${V} is already on Maven Central — nothing to publish."
             exit 0
           fi
           if [ -z "${CENTRAL_USERNAME:-}" ] || [ -z "${CENTRAL_PASSWORD:-}" ]; then

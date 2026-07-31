@@ -60,4 +60,4 @@ jobs:
           git commit -m "chore: track upstream Lombok ${NEW} (publish ${REV})"
           git push
           gh release create "v${REV}" --title "v${REV}" --latest \
-            --notes "Overlay of Project Lombok ${NEW} with @OptionalGetter. Published to Maven Central as io.github.valuya:lombok:${REV}."
+            --notes "Overlay of Project Lombok ${NEW} with @OptionalGetter. Published to Maven Central as io.github.valuya:lombok-optionalgetter-overlay:${REV}."

@@ -15,11 +15,11 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>io.github.valuya</groupId>
-  <artifactId>lombok</artifactId>
+  <artifactId>lombok-optionalgetter-overlay</artifactId>
   <version>${revision}</version>
   <packaging>jar</packaging>
 
-  <name>lombok (Valuya overlay: @OptionalGetter)</name>
+  <name>OptionalGetter overlay for Project Lombok</name>
   <description>Official Project Lombok, overlaid with the @OptionalGetter annotation and handlers.</description>
   <url>https://github.com/Valuya/lombok-optionalgetter</url>
 
@@ -55,7 +55,7 @@
          overlay can be re-cut without colliding with upstream's version: convention is
          <lombok.version>.<overlay-patch>, e.g. 1.18.46.1, 1.18.46.2, ... Bump the last component when
          the overlay changes but the overlaid lombok does not; reset it when lombok.version changes. -->
-    <revision>1.18.46.3</revision>
+    <revision>1.18.46.4</revision>
     <!-- ecj is only needed to compile the (optional) Eclipse handler. -->
     <ecj.version>3.33.0</ecj.version>
   </properties>

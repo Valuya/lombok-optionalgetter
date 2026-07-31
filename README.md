@@ -1,6 +1,6 @@
 # lombok-optionalgetter
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.valuya/lombok?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.valuya/lombok)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.valuya/lombok-optionalgetter-overlay?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.valuya/lombok-optionalgetter-overlay)
 [![CI](https://github.com/Valuya/lombok-optionalgetter/actions/workflows/ci.yml/badge.svg)](https://github.com/Valuya/lombok-optionalgetter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -53,9 +53,16 @@ The result is a drop-in replacement for `org.projectlombok:lombok` that addition
 
 **Upstream tracking is automated** ([`track-upstream.yml`](.github/workflows/track-upstream.yml)): a daily
 job checks Maven Central for a new Lombok release and, *only if the overlay still compiles + smoke-tests
-against it*, bumps the version and publishes `io.github.valuya:lombok:<new>.1`. A breaking internal-API change
+against it*, bumps the version and publishes `io.github.valuya:lombok-optionalgetter-overlay:<new>.1`. A breaking internal-API change
 fails the run instead of shipping a broken jar, so it stays close to upstream without ever auto-publishing
 something that doesn't work.
+
+**To be clear about where the burden sits:** automation shortens the lag, it does not remove the maintenance
+cost, and it does not transfer any of it to the Lombok team. The handlers compile against Lombok *internals*
+(`JavacAnnotationHandler`, `JavacHandlerUtil`, ...), which carry no compatibility guarantee. Project Lombok
+owes this overlay nothing and should not spend a second considering it when they change those internals. When
+a Lombok change breaks the handlers, the daily job goes red and **fixing it is our job**, not theirs. The
+automation's real value is that it fails loudly instead of shipping something broken.
 
 ## Build
 
@@ -75,7 +82,7 @@ and a field's `@Nullable` (incl. JSpecify TYPE_USE) is **not** copied onto the `
 
 ## Quick start
 
-The overlay is published to **Maven Central** as `io.github.valuya:lombok`, a drop-in replacement for
+The overlay is published to **Maven Central** as `io.github.valuya:lombok-optionalgetter-overlay`, a drop-in replacement for
 `org.projectlombok:lombok` that additionally understands `@OptionalGetter`. The version is `<upstream lombok
 version>.<overlay patch>` (e.g. `1.18.46.3` overlays upstream lombok `1.18.46`).
 
@@ -84,13 +91,19 @@ version>.<overlay patch>` (e.g. `1.18.46.3` overlays upstream lombok `1.18.46`).
 ```xml
 <dependency>
   <groupId>io.github.valuya</groupId>
-  <artifactId>lombok</artifactId>
-  <version>1.18.46.3</version>
+  <artifactId>lombok-optionalgetter-overlay</artifactId>
+  <version>1.18.46.4</version>
   <scope>provided</scope>
 </dependency>
 ```
 
-Gradle: `compileOnly 'io.github.valuya:lombok:1.18.46.3'` + `annotationProcessor 'io.github.valuya:lombok:1.18.46.3'`.
+Gradle: `compileOnly 'io.github.valuya:lombok-optionalgetter-overlay:1.18.46.4'` + `annotationProcessor 'io.github.valuya:lombok-optionalgetter-overlay:1.18.46.4'`.
+
+> **Renamed in 1.18.46.4.** This artifact used to be published as `io.github.valuya:lombok`. That artifactId
+> was misleading for an overlay, so it was renamed
+> [at the request of the Project Lombok maintainers](https://github.com/projectlombok/lombok/issues/1957#issuecomment-5136843682).
+> The old coordinate is retired with a Maven `<relocation>`, so existing builds still resolve (and get a
+> warning naming the replacement), but please move to `lombok-optionalgetter-overlay`.
 
 **2. (optional) Pick the accessor name** in `lombok.config` at your project root — the default is already the
 `Optional` suffix:
@@ -155,6 +168,10 @@ Eclipse users don't need it either, the ecj handler covers that IDE.)
 
 ## Changelog
 
+- **1.18.46.4** — **renamed**: `io.github.valuya:lombok` becomes `io.github.valuya:lombok-optionalgetter-overlay`,
+  at the request of the Project Lombok maintainers (the old artifactId was misleading for an overlay). The old
+  coordinate is retired with a Maven `<relocation>` so existing builds keep resolving, with a warning naming the
+  replacement. No functional change.
 - **1.18.46.3** — `@Nullable` (and other nullness markers) are no longer copied onto the `Optional<T>` return;
   a JSpecify TYPE_USE `@Nullable` on `Optional<T>` was a javac error. Proven across ~1,500 accessors in a real
   codebase.

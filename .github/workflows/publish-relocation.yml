@@ -1,0 +1,100 @@
+name: Publish relocation POM for the old coordinates
+
+# One-shot (re-runnable) publish of a *pom-only* artifact at the OLD coordinates
+# io.github.valuya:lombok, carrying a Maven <relocation> to the new artifactId.
+#
+# Effect for consumers: a build still depending on io.github.valuya:lombok resolves the new
+# artifact automatically and prints a warning naming the replacement, instead of silently
+# pinning a stale jar. Published versions cannot be deleted from Central, so this is the
+# supported way to retire a coordinate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish the relocation under (must be NEW, e.g. 1.18.46.4)
+        required: true
+      publishing_type:
+        description: AUTOMATIC (publish immediately) or USER_MANAGED (stage, release in the portal)
+        required: true
+        default: USER_MANAGED
+        type: choice
+        options: [USER_MANAGED, AUTOMATIC]
+
+jobs:
+  relocate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Import GPG signing key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          mkdir -p ~/.gnupg && echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent || true
+
+      - name: Assemble, sign and upload the relocation bundle
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+        run: |
+          set -euo pipefail
+          V="${{ github.event.inputs.version }}"
+          PT="${{ github.event.inputs.publishing_type }}"
+          DIR="bundle/io/github/valuya/lombok/${V}"
+          BASE="${DIR}/lombok-${V}"
+          mkdir -p "$DIR"
+
+          cat > "${BASE}.pom" <<POM
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>io.github.valuya</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${V}</version>
+            <packaging>pom</packaging>
+            <name>Renamed to lombok-optionalgetter-overlay</name>
+            <description>This artifact was renamed to io.github.valuya:lombok-optionalgetter-overlay. The previous artifactId 'lombok' was misleading, since this is an overlay of Project Lombok and not Project Lombok itself. Use the new coordinates.</description>
+            <url>https://github.com/Valuya/lombok-optionalgetter</url>
+            <licenses>
+              <license><name>MIT License</name><url>https://opensource.org/licenses/MIT</url><distribution>repo</distribution></license>
+            </licenses>
+            <developers>
+              <developer><id>ymajoros</id><name>Yannick Majoros</name><email>yannick@valuya.be</email><organization>Valuya SRL</organization><organizationUrl>https://www.valuya.be</organizationUrl></developer>
+            </developers>
+            <scm>
+              <connection>scm:git:https://github.com/Valuya/lombok-optionalgetter.git</connection>
+              <developerConnection>scm:git:ssh://git@github.com/Valuya/lombok-optionalgetter.git</developerConnection>
+              <url>https://github.com/Valuya/lombok-optionalgetter</url>
+            </scm>
+            <distributionManagement>
+              <relocation>
+                <groupId>io.github.valuya</groupId>
+                <artifactId>lombok-optionalgetter-overlay</artifactId>
+                <version>${V}</version>
+                <message>Renamed at the request of the Project Lombok maintainers: the artifactId 'lombok' was misleading for an overlay.</message>
+              </relocation>
+            </distributionManagement>
+          </project>
+          POM
+
+          gpg --batch --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --armor --detach-sign "${BASE}.pom"
+          md5sum  "${BASE}.pom" | cut -d' ' -f1 > "${BASE}.pom.md5"
+          sha1sum "${BASE}.pom" | cut -d' ' -f1 > "${BASE}.pom.sha1"
+
+          ( cd bundle && zip -qr ../relocation-bundle.zip . )
+          unzip -l relocation-bundle.zip
+
+          if [ -z "${CENTRAL_USERNAME:-}" ] || [ -z "${CENTRAL_PASSWORD:-}" ]; then
+            echo "::warning::Central credentials absent, skipping upload (dry run)."; exit 0
+          fi
+          AUTH=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 -w0)
+          HTTP=$(curl -sS -o resp.txt -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $AUTH" \
+            -F "bundle=@relocation-bundle.zip" \
+            "https://central.sonatype.com/api/v1/publisher/upload?name=lombok-relocation-${V}&publishingType=${PT}")
+          echo "HTTP $HTTP"; cat resp.txt; echo
+          [ "$HTTP" -lt 300 ] || exit 1
