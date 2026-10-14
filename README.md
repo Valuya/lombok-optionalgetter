@@ -62,12 +62,9 @@ cost, and it does not transfer any of it to the Lombok team. The handlers compil
 (`JavacAnnotationHandler`, `JavacHandlerUtil`, ...), which carry no compatibility guarantee. Project Lombok
 owes this overlay nothing and should not spend a second considering it when they change those internals. When
 a Lombok change breaks the handlers, the daily job goes red and **fixing it is our job**, not theirs. The
-automation's real value is that it fails loudly instead of shipping something broken — with the caveat that
-it only fails loudly about the things it actually checks. Between 2026-09-02 and 2026-10-14 it reported success
-every single day while publishing nothing, because it compared its own `pom.xml` against upstream instead of
-against Maven Central and so could not see that a release had been tagged but never uploaded. The daily run now ends by
-polling Maven Central until the version it just uploaded actually resolves, and fails if it never does — so a
-green run means the jar is downloadable, not merely that an upload was accepted.
+automation's real value is that it fails loudly instead of shipping something broken. The daily run ends by
+polling Maven Central until the version it just uploaded actually resolves, and fails if it never does, so a
+green run means the jar is downloadable rather than merely that an upload was accepted.
 
 ## Build
 
@@ -174,13 +171,6 @@ Eclipse users don't need it either, the ecj handler covers that IDE.)
 ## Changelog
 
 - **1.18.48.1** — overlays upstream lombok **1.18.48**. No functional change to `@OptionalGetter`.
-  Published 2026-10-14, six weeks after it was tagged: the automated tracker cut the GitHub release with
-  `GITHUB_TOKEN`, and GitHub does not start a workflow run from an event created with that token, so the
-  upload never ran. Worse, the staleness check compared this repo's own `pom.xml` against upstream, so once
-  the bump was pushed it reported "up to date" every day while Central still served 1.18.46.4. Both are
-  fixed: the tracker now *calls* the publish workflow instead of relying on an event, and measures itself
-  against what is actually on Central.
-
 - **1.18.46.4** — **renamed**: `io.github.valuya:lombok` becomes `io.github.valuya:lombok-optionalgetter-overlay`,
   at the request of the Project Lombok maintainers (the old artifactId was misleading for an overlay). The old
   coordinate is retired with a Maven `<relocation>` so existing builds keep resolving, with a warning naming the
