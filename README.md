@@ -65,8 +65,9 @@ a Lombok change breaks the handlers, the daily job goes red and **fixing it is o
 automation's real value is that it fails loudly instead of shipping something broken — with the caveat that
 it only fails loudly about the things it actually checks. Between 2026-09-02 and 2026-10-14 it reported success
 every single day while publishing nothing, because it compared its own `pom.xml` against upstream instead of
-against Maven Central and so could not see that a release had been tagged but never uploaded. A green run is
-now evidence that the artifact is on Central, which is what it should have meant all along.
+against Maven Central and so could not see that a release had been tagged but never uploaded. The daily run now ends by
+polling Maven Central until the version it just uploaded actually resolves, and fails if it never does — so a
+green run means the jar is downloadable, not merely that an upload was accepted.
 
 ## Build
 

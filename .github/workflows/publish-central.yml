@@ -170,10 +170,17 @@ jobs:
             exit 0
           fi
           if [ -z "${CENTRAL_USERNAME:-}" ] || [ -z "${CENTRAL_PASSWORD:-}" ]; then
-            echo "::warning::CENTRAL_USERNAME / CENTRAL_PASSWORD not set — skipping upload (dry run)."
-            echo "The signed bundle was produced and saved as the 'central-bundle-${V}' artifact."
-            echo "Add the token secrets and re-run to publish."
-            exit 0
+            # A dry run is only ever something a human asks for by hand. When the tracker calls this
+            # workflow, exiting 0 here would hand it a green run with nothing published — the exact
+            # shape of the six-week outage this pipeline already had once.
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "::warning::CENTRAL_USERNAME / CENTRAL_PASSWORD not set — skipping upload (dry run)."
+              echo "The signed bundle was produced and saved as the 'central-bundle-${V}' artifact."
+              echo "Add the token secrets and re-run to publish."
+              exit 0
+            fi
+            echo "::error::CENTRAL_USERNAME / CENTRAL_PASSWORD not set — cannot publish ${V}."
+            exit 1
           fi
           AUTH=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 -w0)
           echo "Uploading to Central Portal (publishingType=$PT)..."
@@ -185,3 +192,25 @@ jobs:
           if [ "$HTTP" -ge 300 ]; then echo "Upload failed"; exit 1; fi
           echo "Deployment id: $(cat resp.txt)"
           echo "Track it at https://central.sonatype.com/publishing/deployments"
+
+      # HTTP 201 means the Portal accepted a deployment, not that anyone can resolve the artifact:
+      # validation, publishing and the repo1 sync all still have to happen. Without this step a green
+      # run proves only that an upload was accepted, which is not what the tracker reports it as.
+      - name: Wait until the artifact actually resolves on Maven Central
+        if: steps.cfg.outputs.ptype == 'AUTOMATIC'
+        run: |
+          set -euo pipefail
+          V="${{ steps.cfg.outputs.release }}"
+          URL="https://repo1.maven.org/maven2/io/github/valuya/lombok-optionalgetter-overlay/${V}/lombok-optionalgetter-overlay-${V}.jar"
+          # Sync is usually minutes; 40 x 45s gives it half an hour before we call it a failure.
+          for i in $(seq 1 40); do
+            if curl -sfI "$URL" >/dev/null 2>&1; then
+              echo "io.github.valuya:lombok-optionalgetter-overlay:${V} resolves on Maven Central."
+              exit 0
+            fi
+            echo "attempt ${i}/40: not on Central yet, waiting..."
+            sleep 45
+          done
+          echo "::error::${V} never appeared on Maven Central. The deployment may be stuck or rejected —"
+          echo "::error::check https://central.sonatype.com/publishing/deployments"
+          exit 1
