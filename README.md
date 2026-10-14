@@ -62,7 +62,9 @@ cost, and it does not transfer any of it to the Lombok team. The handlers compil
 (`JavacAnnotationHandler`, `JavacHandlerUtil`, ...), which carry no compatibility guarantee. Project Lombok
 owes this overlay nothing and should not spend a second considering it when they change those internals. When
 a Lombok change breaks the handlers, the daily job goes red and **fixing it is our job**, not theirs. The
-automation's real value is that it fails loudly instead of shipping something broken.
+automation's real value is that it fails loudly instead of shipping something broken. The daily run ends by
+polling Maven Central until the version it just uploaded actually resolves, and fails if it never does, so a
+green run means the jar is downloadable rather than merely that an upload was accepted.
 
 ## Build
 
@@ -92,12 +94,12 @@ version>.<overlay patch>` (e.g. `1.18.46.3` overlays upstream lombok `1.18.46`).
 <dependency>
   <groupId>io.github.valuya</groupId>
   <artifactId>lombok-optionalgetter-overlay</artifactId>
-  <version>1.18.46.4</version>
+  <version>1.18.48.1</version>
   <scope>provided</scope>
 </dependency>
 ```
 
-Gradle: `compileOnly 'io.github.valuya:lombok-optionalgetter-overlay:1.18.46.4'` + `annotationProcessor 'io.github.valuya:lombok-optionalgetter-overlay:1.18.46.4'`.
+Gradle: `compileOnly 'io.github.valuya:lombok-optionalgetter-overlay:1.18.48.1'` + `annotationProcessor 'io.github.valuya:lombok-optionalgetter-overlay:1.18.48.1'`.
 
 > **Renamed in 1.18.46.4.** This artifact used to be published as `io.github.valuya:lombok`. That artifactId
 > was misleading for an overlay, so it was renamed
@@ -168,6 +170,7 @@ Eclipse users don't need it either, the ecj handler covers that IDE.)
 
 ## Changelog
 
+- **1.18.48.1** — overlays upstream lombok **1.18.48**. No functional change to `@OptionalGetter`.
 - **1.18.46.4** — **renamed**: `io.github.valuya:lombok` becomes `io.github.valuya:lombok-optionalgetter-overlay`,
   at the request of the Project Lombok maintainers (the old artifactId was misleading for an overlay). The old
   coordinate is retired with a Maven `<relocation>` so existing builds keep resolving, with a warning naming the
