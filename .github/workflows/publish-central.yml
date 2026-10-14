@@ -17,12 +17,33 @@ on:
         description: Upstream lombok version to overlay (blank = pom's lombok.version)
         required: false
         default: ""
+      release_version:
+        description: Version to publish (blank = pom's revision)
+        required: false
+        default: ""
       publishing_type:
         description: AUTOMATIC (publish immediately) or USER_MANAGED (stage, then release in the portal)
         required: true
         default: USER_MANAGED
         type: choice
         options: [USER_MANAGED, AUTOMATIC]
+  # Called directly by track-upstream.yml. A `release` event created with GITHUB_TOKEN does not start a
+  # workflow run (GitHub suppresses it to avoid recursion), so the tracker cannot rely on the trigger
+  # below — it has to call this workflow, which is why these inputs exist.
+  workflow_call:
+    inputs:
+      lombok_version:
+        type: string
+        required: false
+        default: ""
+      release_version:
+        type: string
+        required: false
+        default: ""
+      publishing_type:
+        type: string
+        required: false
+        default: AUTOMATIC
   release:
     types: [published]
 
@@ -41,12 +62,15 @@ jobs:
         id: cfg
         run: |
           # LOMBOK = upstream version we overlay; RELEASE = the version we publish (its own lane, e.g. 1.18.46.1)
-          LOMBOK="${{ github.event.inputs.lombok_version }}"
+          # `inputs` is populated for workflow_dispatch and workflow_call alike, and empty for a release event.
+          LOMBOK="${{ inputs.lombok_version }}"
           [ -n "$LOMBOK" ] || LOMBOK="$(mvn -q -DforceStdout help:evaluate -Dexpression=lombok.version)"
           if [ "${{ github.event_name }}" = "release" ]; then
             RELEASE="${GITHUB_REF_NAME#v}"; PT="AUTOMATIC"
           else
-            RELEASE="$(mvn -q -DforceStdout help:evaluate -Dexpression=revision)"; PT="${{ github.event.inputs.publishing_type }}"
+            RELEASE="${{ inputs.release_version }}"
+            [ -n "$RELEASE" ] || RELEASE="$(mvn -q -DforceStdout help:evaluate -Dexpression=revision)"
+            PT="${{ inputs.publishing_type }}"
           fi
           echo "lombok=$LOMBOK"   >> "$GITHUB_OUTPUT"
           echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
