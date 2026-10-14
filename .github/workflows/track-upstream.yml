@@ -1,9 +1,14 @@
 name: Track upstream Lombok
 
 # Checks daily for a new Project Lombok release and, if the overlay still builds + smoke-tests against it,
-# bumps the version and cuts a release (which publishes to Maven Central via publish-central.yml).
+# bumps the version, publishes to Maven Central and cuts a release.
 # If Lombok changed its internal API and the handlers no longer compile, the run fails and nothing is
 # published — that red run is the signal to update the handlers by hand.
+#
+# Staleness is measured against WHAT IS ON MAVEN CENTRAL, never against this repo's own pom. Comparing the
+# pom to upstream only says what we *intended* to ship: between 2026-09-02 and 2026-10-13 the pom read
+# 1.18.48 while Central still served 1.18.46.4, so the check reported "up to date" every day for six weeks
+# while the artifact people actually resolve was two upstream releases behind.
 
 on:
   schedule:
@@ -14,7 +19,46 @@ permissions:
   contents: write
 
 jobs:
-  track:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.v.outputs.changed }}
+      lombok: ${{ steps.v.outputs.lombok }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - name: Compare Maven Central against upstream
+        id: v
+        run: |
+          set -euo pipefail
+          central_release() {
+            curl -sf --retry 3 --retry-delay 5 "https://repo1.maven.org/maven2/$1/maven-metadata.xml" \
+              | grep -oP '(?<=<release>)[^<]+'
+          }
+          UPSTREAM=$(central_release org/projectlombok/lombok)
+          PUBLISHED=$(central_release io/github/valuya/lombok-optionalgetter-overlay)
+          # An empty answer means Central was unreachable, not that we are up to date — fail instead of no-oping.
+          [ -n "$UPSTREAM" ]  || { echo "::error::could not read upstream lombok version from Central"; exit 1; }
+          [ -n "$PUBLISHED" ] || { echo "::error::could not read published overlay version from Central"; exit 1; }
+
+          # Our versions are <upstream>.<overlay-patch>, so dropping the last component gives the upstream
+          # release that the newest PUBLISHED overlay actually carries.
+          PUBLISHED_UPSTREAM="${PUBLISHED%.*}"
+          echo "upstream lombok on Central:     $UPSTREAM"
+          echo "overlay published on Central:   $PUBLISHED (overlays $PUBLISHED_UPSTREAM)"
+
+          if [ "$PUBLISHED_UPSTREAM" = "$UPSTREAM" ]; then
+            echo "Up to date: the published overlay already carries lombok $UPSTREAM."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Need to publish: lombok $UPSTREAM is out, newest published overlay carries $PUBLISHED_UPSTREAM."
+            echo "changed=true"            >> "$GITHUB_OUTPUT"
+            echo "lombok=$UPSTREAM"        >> "$GITHUB_OUTPUT"
+            echo "release=${UPSTREAM}.1"   >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: detect
+    if: needs.detect.outputs.changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -23,41 +67,60 @@ jobs:
           distribution: temurin
           java-version: "25"
 
-      - name: Detect versions
-        id: v
-        run: |
-          CURRENT=$(mvn -q -DforceStdout help:evaluate -Dexpression=lombok.version)
-          LATEST=$(curl -sf https://repo1.maven.org/maven2/org/projectlombok/lombok/maven-metadata.xml \
-                   | grep -oP '(?<=<release>)[^<]+')
-          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
-          echo "latest=$LATEST"   >> "$GITHUB_OUTPUT"
-          if [ "$CURRENT" = "$LATEST" ]; then
-            echo "Up to date on Lombok $CURRENT."; echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "New Lombok: $CURRENT -> $LATEST"; echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Bump and smoke-test the overlay against the new Lombok
-        if: steps.v.outputs.changed == 'true'
         run: |
           set -euo pipefail
-          NEW="${{ steps.v.outputs.latest }}"; REV="${NEW}.1"
+          NEW="${{ needs.detect.outputs.lombok }}"; REV="${{ needs.detect.outputs.release }}"
           sed -i "s#<lombok.version>[^<]*</lombok.version>#<lombok.version>${NEW}</lombok.version>#" pom.xml
           sed -i "s#<revision>[^<]*</revision>#<revision>${REV}</revision>#" pom.xml
           # Compiles the handlers against the new Lombok internals and runs the smoke tests.
           ./build.sh
 
-      - name: Commit + release (release publishes to Maven Central)
-        if: steps.v.outputs.changed == 'true'
+      - name: Commit the bump
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pom.xml
+          # A previous run may already have pushed this bump and then failed to publish, so an
+          # unchanged pom is a normal recovery path rather than an error.
+          if git diff --cached --quiet; then
+            echo "pom.xml already at ${{ needs.detect.outputs.release }} — nothing to commit."
+          else
+            git commit -m "chore: track upstream Lombok ${{ needs.detect.outputs.lombok }} (publish ${{ needs.detect.outputs.release }})"
+            git push
+          fi
+
+  # The publish has to be *called*, not triggered: a release created with GITHUB_TOKEN does not start a
+  # workflow run, which is why v1.18.48.1 was tagged on 2026-09-02 and never reached Central.
+  # build.sh takes both versions as arguments (it passes -Dlombok.version to Maven), so this job does not
+  # need the bumped pom and is unaffected by running against the pre-bump checkout.
+  publish:
+    needs: [detect, build]
+    if: needs.detect.outputs.changed == 'true'
+    uses: ./.github/workflows/publish-central.yml
+    with:
+      lombok_version: ${{ needs.detect.outputs.lombok }}
+      release_version: ${{ needs.detect.outputs.release }}
+      publishing_type: AUTOMATIC
+    secrets: inherit
+
+  # Only after the artifact is on Central, so a GitHub release never claims something that was not shipped.
+  release:
+    needs: [detect, publish]
+    if: needs.detect.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Cut the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          NEW="${{ steps.v.outputs.latest }}"; REV="${NEW}.1"
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add pom.xml
-          git commit -m "chore: track upstream Lombok ${NEW} (publish ${REV})"
-          git push
+          REV="${{ needs.detect.outputs.release }}"
+          if gh release view "v${REV}" >/dev/null 2>&1; then
+            echo "Release v${REV} already exists — leaving it alone."
+            exit 0
+          fi
           gh release create "v${REV}" --title "v${REV}" --latest \
-            --notes "Overlay of Project Lombok ${NEW} with @OptionalGetter. Published to Maven Central as io.github.valuya:lombok-optionalgetter-overlay:${REV}."
+            --notes "Overlay of Project Lombok ${{ needs.detect.outputs.lombok }} with @OptionalGetter. Published to Maven Central as io.github.valuya:lombok-optionalgetter-overlay:${REV}."
